@@ -86,11 +86,28 @@ class TrainerConfig:
 
 
 @dataclass
+class CustomConfig:
+    reward_function: Optional[str] = None
+    use_negative_reward: bool = True
+    negative_reward_weight: float = 1.0
+    use_confused_regions: bool = True
+    confused_regions_dir: Optional[str] = None
+    negative_alpha: float = 1.0
+    negative_beta: float = 0.5
+    max_negative_points: int = 2
+    use_strict_format: bool = True
+    prompt_template: str = "negative_point"
+    sam_model_path: Optional[str] = None
+    image_size: int = 840
+
+
+@dataclass
 class PPOConfig:
     data: DataConfig = field(default_factory=DataConfig)
     worker: WorkerConfig = field(default_factory=WorkerConfig)
     algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
     trainer: TrainerConfig = field(default_factory=TrainerConfig)
+    custom: CustomConfig = field(default_factory=CustomConfig)
 
     def post_init(self):
         self.worker.rollout.prompt_length = self.data.max_prompt_length
