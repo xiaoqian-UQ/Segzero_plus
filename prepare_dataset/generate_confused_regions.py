@@ -11,6 +11,59 @@ import pyarrow.parquet as pq
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 
+
+import os
+from hydra import initialize_config_dir, compose
+from omegaconf import OmegaConf
+
+from hydra.core.global_hydra import GlobalHydra
+from hydra import initialize_config_dir, compose
+from hydra.utils import instantiate
+from sam2.build_sam import _load_checkpoint
+
+
+
+import os, glob
+import pyarrow as pa
+import pyarrow.ipc as ipc
+
+import os, glob
+import pyarrow as pa
+import pyarrow.ipc as ipc
+
+def _read_one_arrow(path: str) -> pa.Table:
+    # HF shards 有的用 IPC file，有的用 IPC stream；两种都兼容
+    try:
+        with ipc.open_file(path) as reader:
+            return reader.read_all()
+    except pa.ArrowInvalid:
+        with ipc.open_stream(path) as reader:
+            return reader.read_all()
+
+def read_hf_arrow_cache_dir(cache_dir: str):
+    arrow_files = sorted(glob.glob(os.path.join(cache_dir, "*.arrow")))
+    if not arrow_files:
+        raise FileNotFoundError(f"No .arrow files found in: {cache_dir}")
+
+    tables = [_read_one_arrow(f) for f in arrow_files]
+    return pa.concat_tables(tables, promote=True).to_pandas()
+
+
+def build_sam2_from_config_dir(config_dir: str, config_name: str, ckpt_path: str, device="cuda"):
+    # 关键：如果之前任何地方初始化过 hydra，这里必须 clear
+    if GlobalHydra.instance().is_initialized():
+        GlobalHydra.instance().clear()
+
+    with initialize_config_dir(config_dir=config_dir, version_base=None):
+        cfg = compose(config_name=config_name)
+
+    model = instantiate(cfg.model)
+    _load_checkpoint(model, ckpt_path)
+    model.to(device).eval()
+    return model
+
+
+
 def generate_confused_regions_dataset(
     input_parquet: str,
     output_dir: str,
@@ -21,11 +74,20 @@ def generate_confused_regions_dataset(
     为数据集预计算混淆区域
     """
     # 加载SAM模型
-    sam_model = build_sam2("sam2_hiera_l.yaml", sam_model_path, device="cuda")
+    sam_model = build_sam2_from_config_dir(
+        config_dir="/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/sam2/configs",
+        config_name="sam2.1/sam2.1_hiera_l.yaml",
+        ckpt_path=sam_model_path,
+        device="cuda",
+    )
+
     sam_predictor = SAM2ImagePredictor(sam_model)
     
-    # 读取数据
-    df = pq.read_table(input_parquet).to_pandas()
+    from datasets import load_from_disk
+
+    df = read_hf_arrow_cache_dir(input_parquet)
+    print("columns:", df.columns.tolist())
+    print(df.iloc[0])
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -114,3 +176,7 @@ if __name__ == "__main__":
         output_dir="/mnt/xiaoqian/dataset/refcocog_9k/confused_region",
         sam_model_path="/mnt/xiaoqian/model/sam2/checkpoints/sam2.1_hiera_large.pt"
     )
+
+
+
+

@@ -25,13 +25,13 @@ export WANDB_MODE=disabled
 
 
 
-BASE_MODEL="pretrained_models/Seg-Zero-7B"
+BASE_MODEL="/mnt/xiaoqian/model/pretrained_models/Seg-Zero-7B/"
 
 # SAM2模型路径
-SAM_MODEL="pretrained_models/sam2.1_hiera_large.pt"
+SAM_MODEL="/mnt/xiaoqian/model/sam2/checkpoints/sam2.1_hiera_large.pt"
 
 # 数据路径
-DATA_DIR="data/refcocog_9k_840"
+DATA_DIR="/mnt/xiaoqian/dataset/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/"
 TRAIN_DATA="${DATA_DIR}/train.parquet"
 VAL_DATA="${DATA_DIR}/val.parquet"
 
