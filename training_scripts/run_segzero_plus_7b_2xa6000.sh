@@ -31,7 +31,11 @@ BASE_MODEL="/mnt/xiaoqian/model/pretrained_models/Seg-Zero-7B/"
 SAM_MODEL="/mnt/xiaoqian/model/sam2/checkpoints/sam2.1_hiera_large.pt"
 
 # 数据路径
-DATA_DIR="/mnt/xiaoqian/dataset/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/"
+DATA_DIR="/mnt/xiaoqian/dataset/refcocog/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/"
+ALT_DATA_DIR="/mnt/xiaoqian/dataset/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/"
+if [ ! -d "$DATA_DIR" ] && [ -d "$ALT_DATA_DIR" ]; then
+    DATA_DIR="$ALT_DATA_DIR"
+fi
 TRAIN_DATA="${DATA_DIR}/train.parquet"
 VAL_DATA="${DATA_DIR}/val.parquet"
 
@@ -152,9 +156,21 @@ if [ ! -f "$SAM_MODEL" ]; then
 fi
 
 if [ ! -f "$TRAIN_DATA" ]; then
-    echo "ERROR: Training data not found at $TRAIN_DATA"
-    echo "Please run: python training_scripts/download_dataset.py"
-    exit 1
+    if [ -f "$DATA_DIR/dataset_info.json" ] || compgen -G "$DATA_DIR"/*-train-*.arrow > /dev/null; then
+        TRAIN_DATA="$DATA_DIR"
+    else
+        echo "ERROR: Training data not found at $TRAIN_DATA"
+        echo "Please run: python training_scripts/download_dataset.py"
+        exit 1
+    fi
+fi
+
+if [ ! -f "$VAL_DATA" ]; then
+    if [ -f "$DATA_DIR/dataset_info.json" ] || compgen -G "$DATA_DIR"/*-validation-*.arrow > /dev/null; then
+        VAL_DATA="$DATA_DIR"
+    else
+        VAL_DATA=""
+    fi
 fi
 
 echo "All required files found!"

@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import math
+import os
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 import torch
-from datasets import load_dataset, load_from_disk
+from datasets import DatasetDict, load_dataset, load_from_disk
 from PIL import Image
 from PIL.Image import Image as ImageObject
 from torch.utils.data import Dataset
@@ -88,13 +89,33 @@ class RLHFDataset(Dataset):
         self.max_pixels = max_pixels
         self.min_pixels = min_pixels
 
-        self.dataset = load_dataset(data_path)['train']
-        # self.dataset = load_from_disk(data_path)['train'] # you can load from disk if you have already downloaded the dataset
+        self.dataset = self._load_dataset(data_path)
                 
         self.user_prompt = "<image>" + NEGATIVE_POINT_PROMPT.strip()
 
     def __len__(self):
         return len(self.dataset)
+
+    def _load_dataset(self, data_path: str):
+        if os.path.isdir(data_path):
+            dataset = load_from_disk(data_path)
+            if isinstance(dataset, DatasetDict):
+                if "train" in dataset:
+                    return dataset["train"]
+                return next(iter(dataset.values()))
+            return dataset
+
+        if os.path.isfile(data_path):
+            _, ext = os.path.splitext(data_path)
+            ext = ext.lower()
+            if ext == ".parquet":
+                return load_dataset("parquet", data_files=data_path)["train"]
+            if ext in {".json", ".jsonl"}:
+                return load_dataset("json", data_files=data_path)["train"]
+            if ext == ".arrow":
+                return load_dataset("arrow", data_files=data_path)["train"]
+
+        return load_dataset(data_path)["train"]
 
     def __getitem__(self, index):
         """
