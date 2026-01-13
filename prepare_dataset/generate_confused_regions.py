@@ -110,7 +110,7 @@ def identify_confused_regions_fast(
 
 if __name__ == "__main__":
     generate_confused_regions_dataset(
-        input_parquet="data/refcocog_9k_840/train.parquet",
-        output_dir="data/refcocog_9k_840/confused_regions",
-        sam_model_path="pretrained_models/sam2.1_hiera_large.pt"
+        input_parquet="/mnt/xiaoqian/dataset/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/",
+        output_dir="/mnt/xiaoqian/dataset/refcocog_9k/confused_region",
+        sam_model_path="/mnt/xiaoqian/model/sam2/checkpoints/sam2.1_hiera_large.pt"
     )
