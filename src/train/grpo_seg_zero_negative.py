@@ -46,6 +46,8 @@ class GRPOTrainerWithNegativePoints:
         self.clip_lower = config.get("clip_lower", -0.2)
         self.clip_upper = config.get("clip_upper", 0.28)
         self.temperature = config.get("temperature", 0.7)
+        self.optimizer = None
+        self.engine = None
         
     def _init_model(self):
         """初始化模型并添加LoRA"""
@@ -129,15 +131,25 @@ class GRPOTrainerWithNegativePoints:
         loss = self._compute_grpo_loss(all_rewards, all_log_probs)
         
         # 反向传播
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        if self.engine is not None:
+            self.engine.backward(loss)
+            self.engine.step()
+        else:
+            if self.optimizer is None:
+                raise RuntimeError("Optimizer is not initialized.")
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
         
         return {
             "loss": loss.item(),
             "mean_reward": np.mean([r for rewards in all_rewards for r in rewards]),
             "max_reward": np.max([r for rewards in all_rewards for r in rewards])
         }
+
+    def set_engine(self, engine) -> None:
+        """设置DeepSpeed引擎"""
+        self.engine = engine
     
     def _build_prompt(self, query: str) -> str:
         """构建包含负点说明的prompt"""
@@ -148,6 +160,7 @@ class GRPOTrainerWithNegativePoints:
             "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags."
             "Output the one bbox, points of two largest inscribed circles inside the interested object, "
             "and negative points in confusing background regions, all in JSON format."
+            "All coordinates should be normalized to [0, 1]."
             "i.e., <think> thinking process here </think>"
             '<answer>{"bbox": [x1, y1, x2, y2], "points": [[x1, y1], [x2, y2]], "negative_points": [[x1, y1]]}</answer>'
         )
@@ -159,9 +172,10 @@ class GRPOTrainerWithNegativePoints:
         outputs = []
         log_probs = []
         
+        model = self.engine.module if self.engine is not None else self.model
         for _ in range(k):
             with torch.no_grad():
-                generated = self.model.generate(
+                generated = model.generate(
                     **inputs,
                     max_new_tokens=128,
                     temperature=self.temperature,
@@ -227,3 +241,164 @@ class GRPOTrainerWithNegativePoints:
                 count += 1
         
         return total_loss / count
+
+
+def main():
+    """训练主函数"""
+    import argparse
+    import yaml
+    import os
+    import json
+    from torch.optim import AdamW
+    from transformers import get_linear_schedule_with_warmup
+    from tqdm import tqdm
+    import torch.distributed as dist
+    import deepspeed
+
+    # 解析命令行参数
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, required=True, help="配置文件路径")
+    parser.add_argument("--output_dir", type=str, required=True, help="输出目录")
+    parser.add_argument("--local_rank", type=int, default=-1, help="DeepSpeed local rank")
+    parser.add_argument("--deepspeed", type=str, default=None, help="DeepSpeed配置文件")
+    args = parser.parse_args()
+
+    if args.local_rank == -1 and "LOCAL_RANK" in os.environ:
+        args.local_rank = int(os.environ["LOCAL_RANK"])
+
+    use_distributed = args.local_rank != -1
+    if use_distributed:
+        torch.cuda.set_device(args.local_rank)
+        deepspeed.init_distributed()
+
+    # 加载配置
+    with open(args.config, 'r') as f:
+        config = yaml.safe_load(f)
+
+    if use_distributed:
+        config["device"] = f"cuda:{args.local_rank}"
+
+    # 创建输出目录
+    if not use_distributed or dist.get_rank() == 0:
+        os.makedirs(args.output_dir, exist_ok=True)
+
+    # 初始化trainer
+    if not use_distributed or dist.get_rank() == 0:
+        print("Initializing trainer...")
+    trainer = GRPOTrainerWithNegativePoints(config)
+
+    # 初始化优化器
+    optimizer = AdamW(
+        trainer.model.parameters(),
+        lr=config.get("learning_rate", 1e-5)
+    )
+    trainer.optimizer = optimizer
+
+    # 初始化学习率调度器
+    num_training_steps = config.get("max_steps", 5000)
+    scheduler = get_linear_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=config.get("warmup_steps", 100),
+        num_training_steps=num_training_steps
+    )
+
+    # DeepSpeed初始化（可选）
+    if args.deepspeed:
+        if not os.path.exists(args.deepspeed):
+            raise FileNotFoundError(f"DeepSpeed config not found: {args.deepspeed}")
+        with open(args.deepspeed, "r") as f:
+            ds_config = json.load(f)
+        model_engine, optimizer, _, scheduler = deepspeed.initialize(
+            args=args,
+            model=trainer.model,
+            model_parameters=trainer.model.parameters(),
+            optimizer=optimizer,
+            lr_scheduler=scheduler,
+            config_params=ds_config
+        )
+        trainer.set_engine(model_engine)
+        trainer.model = model_engine
+        trainer.optimizer = optimizer
+        trainer.scheduler = scheduler
+
+    # 加载数据
+    if not use_distributed or dist.get_rank() == 0:
+        print("Loading data...")
+    from src.data.dataset import create_dataloader
+
+    train_dataloader = create_dataloader(
+        arrow_dir=config["train_data"]["arrow_dir"],
+        mask_dir=config["train_data"]["mask_dir"],
+        batch_size=config.get("batch_size", 2),
+        image_size=config.get("image_size", 840),
+        num_workers=4,
+        shuffle=True,
+        distributed=use_distributed,
+        rank=dist.get_rank() if use_distributed else 0,
+        world_size=dist.get_world_size() if use_distributed else 1
+    )
+
+    if not use_distributed or dist.get_rank() == 0:
+        print(f"Training samples: {len(train_dataloader.dataset)}")
+
+    # 训练循环
+    if not use_distributed or dist.get_rank() == 0:
+        print("Starting training...")
+    global_step = 0
+    trainer.model.train()
+
+    # 创建进度条
+    pbar = tqdm(total=num_training_steps, desc="Training") if not use_distributed or dist.get_rank() == 0 else None
+
+    epoch = 0
+    while global_step < num_training_steps:
+        epoch += 1
+        if not use_distributed or dist.get_rank() == 0:
+            print(f"\n=== Epoch {epoch} ===")
+
+        for batch_idx, batch in enumerate(train_dataloader):
+            # 训练一步
+            metrics = trainer.train_step(batch)
+
+            # 更新学习率（DeepSpeed已接管时跳过）
+            if trainer.engine is None:
+                scheduler.step()
+
+            global_step += 1
+            if pbar:
+                pbar.update(1)
+
+            # 打印训练指标
+            if global_step % 10 == 0 and pbar:
+                pbar.set_postfix({
+                    "loss": f"{metrics['loss']:.4f}",
+                    "reward": f"{metrics['mean_reward']:.4f}",
+                    "lr": f"{scheduler.get_last_lr()[0]:.2e}"
+                })
+
+            # 保存检查点
+            if global_step % config.get("save_steps", 500) == 0 and (not use_distributed or dist.get_rank() == 0):
+                save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                os.makedirs(save_path, exist_ok=True)
+                model_to_save = trainer.engine.module if trainer.engine is not None else trainer.model
+                model_to_save.save_pretrained(save_path)
+                print(f"\nSaved checkpoint to {save_path}")
+
+            # 达到最大步数
+            if global_step >= num_training_steps:
+                break
+
+    if pbar:
+        pbar.close()
+
+    # 保存最终模型
+    if not use_distributed or dist.get_rank() == 0:
+        final_save_path = os.path.join(args.output_dir, "final_model")
+        os.makedirs(final_save_path, exist_ok=True)
+        model_to_save = trainer.engine.module if trainer.engine is not None else trainer.model
+        model_to_save.save_pretrained(final_save_path)
+        print(f"\nTraining completed! Final model saved to {final_save_path}")
+
+
+if __name__ == "__main__":
+    main()

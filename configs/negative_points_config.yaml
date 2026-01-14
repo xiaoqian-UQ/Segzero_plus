@@ -1,9 +1,9 @@
 # configs/negative_points_config.yaml
 
 # 模型配置
-model_path: "Qwen/Qwen2.5-VL-7B-Instruct"
-sam_config: "configs/sam2.1/sam2.1_hiera_l.yaml"
-sam_checkpoint: "checkpoints/sam2.1_hiera_large.pt"
+model_path: "/mnt/xiaoqian/model/pretrained_models/Seg-Zero-7B/"
+sam_config: "/mnt/xiaoqian/model/sam2/sam2/configs/sam2.1/sam2.1_hiera_l.yaml"
+sam_checkpoint: "/mnt/xiaoqian/model/sam2/checkpoints/sam2.1_hiera_large.pt"
 
 # LoRA配置
 lora_r: 64

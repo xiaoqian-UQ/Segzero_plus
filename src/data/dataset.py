@@ -148,7 +148,10 @@ def create_dataloader(
     batch_size: int = 2,
     image_size: int = 840,
     num_workers: int = 4,
-    shuffle: bool = True
+    shuffle: bool = True,
+    distributed: bool = False,
+    rank: int = 0,
+    world_size: int = 1
 ):
     """
     创建数据加载器
@@ -170,10 +173,22 @@ def create_dataloader(
         image_size=image_size
     )
     
+    sampler = None
+    if distributed:
+        from torch.utils.data.distributed import DistributedSampler
+        sampler = DistributedSampler(
+            dataset,
+            num_replicas=world_size,
+            rank=rank,
+            shuffle=shuffle
+        )
+        shuffle = False
+
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
+        sampler=sampler,
         num_workers=num_workers,
         collate_fn=collate_fn,
         pin_memory=True

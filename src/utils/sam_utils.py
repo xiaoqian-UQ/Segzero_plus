@@ -1,5 +1,6 @@
 # src/utils/sam_utils.py
 
+import os
 import torch
 import numpy as np
 from typing import List, Tuple, Optional
@@ -21,11 +22,36 @@ class SAM2Wrapper:
             device: 计算设备
         """
         self.device = device
-        self.predictor = SAM2ImagePredictor.from_pretrained(
-            model_cfg=model_cfg,
-            checkpoint=checkpoint
-        )
+        self.predictor = self._load_predictor(model_cfg, checkpoint, device)
         self.predictor.model.to(device)
+
+    def _load_predictor(self, model_cfg: str, checkpoint: str, device: str):
+        if os.path.isfile(model_cfg) and model_cfg.lower().endswith((".yaml", ".yml")):
+            if not os.path.exists(checkpoint):
+                raise FileNotFoundError(f"SAM2 checkpoint not found: {checkpoint}")
+
+            from sam2.build_sam import build_sam2
+            from hydra import initialize_config_dir
+            from hydra.core.global_hydra import GlobalHydra
+
+            abs_yaml = os.path.abspath(model_cfg)
+            config_dir = os.path.dirname(abs_yaml)
+            config_name = os.path.splitext(os.path.basename(abs_yaml))[0]
+
+            if GlobalHydra.instance().is_initialized():
+                GlobalHydra.instance().clear()
+
+            initialize_config_dir(
+                config_dir=config_dir,
+                version_base=None,
+                job_name="sam2_local_cfg",
+            )
+
+            sam_model = build_sam2(config_name, ckpt_path=checkpoint, device=device, mode="eval")
+            return SAM2ImagePredictor(sam_model)
+
+        # fallback: treat model_cfg as Hugging Face model id
+        return SAM2ImagePredictor.from_pretrained(model_cfg)
     
     def predict_mask(
         self,
