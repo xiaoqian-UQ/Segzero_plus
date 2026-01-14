@@ -296,31 +296,57 @@ def main():
     import yaml
     import os
     import json
+    import sys
     from torch.optim import AdamW
     from transformers import get_linear_schedule_with_warmup
     from tqdm import tqdm
     import torch.distributed as dist
     import deepspeed
 
+    print("=" * 80, flush=True)
+    print("GRPO Negative Points Training - START", flush=True)
+    print("=" * 80, flush=True)
+
     # 解析命令行参数
+    print("\n[1/10] Parsing arguments...", flush=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="配置文件路径")
     parser.add_argument("--output_dir", type=str, required=True, help="输出目录")
     parser.add_argument("--local_rank", type=int, default=-1, help="DeepSpeed local rank")
     parser.add_argument("--deepspeed", type=str, default=None, help="DeepSpeed配置文件")
     args = parser.parse_args()
+    print(f"   Config: {args.config}", flush=True)
+    print(f"   Output dir: {args.output_dir}", flush=True)
+    print(f"   Local rank: {args.local_rank}", flush=True)
+    print(f"   DeepSpeed: {args.deepspeed}", flush=True)
 
     if args.local_rank == -1 and "LOCAL_RANK" in os.environ:
         args.local_rank = int(os.environ["LOCAL_RANK"])
+        print(f"   Local rank from env: {args.local_rank}", flush=True)
 
     use_distributed = args.local_rank != -1
+    print(f"   Distributed: {use_distributed}", flush=True)
+
     if use_distributed:
+        print(f"\n[2/10] Initializing distributed training...", flush=True)
         torch.cuda.set_device(args.local_rank)
         deepspeed.init_distributed()
+        print(f"   Rank: {dist.get_rank()}, World size: {dist.get_world_size()}", flush=True)
+    else:
+        print(f"\n[2/10] Single-process training", flush=True)
 
     # 加载配置
-    with open(args.config, 'r') as f:
-        config = yaml.safe_load(f)
+    print(f"\n[3/10] Loading config from {args.config}...", flush=True)
+    try:
+        with open(args.config, 'r') as f:
+            config = yaml.safe_load(f)
+        print(f"   ✓ Config loaded successfully", flush=True)
+        print(f"   Model: {config.get('model_path', 'N/A')}", flush=True)
+        print(f"   Batch size: {config.get('batch_size', 'N/A')}", flush=True)
+        print(f"   Max steps: {config.get('max_steps', 'N/A')}", flush=True)
+    except Exception as e:
+        print(f"   ✗ Failed to load config: {e}", flush=True)
+        sys.exit(1)
 
     config["use_deepspeed"] = bool(args.deepspeed)
 
@@ -328,76 +354,120 @@ def main():
         config["device"] = f"cuda:{args.local_rank}"
 
     # 创建输出目录
+    print(f"\n[4/10] Creating output directory...", flush=True)
     if not use_distributed or dist.get_rank() == 0:
         os.makedirs(args.output_dir, exist_ok=True)
+        print(f"   ✓ Output dir: {args.output_dir}", flush=True)
 
     # 初始化trainer
-    if not use_distributed or dist.get_rank() == 0:
-        print("Initializing trainer...")
-    trainer = GRPOTrainerWithNegativePoints(config)
+    print(f"\n[5/10] Initializing trainer (this may take a few minutes)...", flush=True)
+    try:
+        trainer = GRPOTrainerWithNegativePoints(config)
+        print(f"   ✓ Trainer initialized", flush=True)
+    except Exception as e:
+        print(f"   ✗ Trainer initialization failed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     # 初始化优化器
-    optimizer = AdamW(
-        trainer.model.parameters(),
-        lr=config.get("learning_rate", 1e-5)
-    )
-    trainer.optimizer = optimizer
+    print(f"\n[6/10] Initializing optimizer and scheduler...", flush=True)
+    try:
+        optimizer = AdamW(
+            trainer.model.parameters(),
+            lr=config.get("learning_rate", 1e-5)
+        )
+        trainer.optimizer = optimizer
+        print(f"   ✓ Optimizer: AdamW, LR={config.get('learning_rate', 1e-5)}", flush=True)
 
-    # 初始化学习率调度器
-    num_training_steps = config.get("max_steps", 5000)
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=config.get("warmup_steps", 100),
-        num_training_steps=num_training_steps
-    )
+        # 初始化学习率调度器
+        num_training_steps = config.get("max_steps", 5000)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=config.get("warmup_steps", 100),
+            num_training_steps=num_training_steps
+        )
+        print(f"   ✓ Scheduler: warmup={config.get('warmup_steps', 100)}, total={num_training_steps}", flush=True)
+    except Exception as e:
+        print(f"   ✗ Optimizer/scheduler initialization failed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     # DeepSpeed初始化（可选）
+    print(f"\n[7/10] DeepSpeed initialization...", flush=True)
     if args.deepspeed:
-        if not os.path.exists(args.deepspeed):
-            raise FileNotFoundError(f"DeepSpeed config not found: {args.deepspeed}")
-        with open(args.deepspeed, "r") as f:
-            ds_config = json.load(f)
-        model_engine, optimizer, _, scheduler = deepspeed.initialize(
-            args=args,
-            model=trainer.model,
-            model_parameters=trainer.model.parameters(),
-            optimizer=optimizer,
-            lr_scheduler=scheduler,
-            config_params=ds_config
-        )
-        trainer.set_engine(model_engine)
-        trainer.model = model_engine
-        trainer.optimizer = optimizer
-        trainer.scheduler = scheduler
+        print(f"   DeepSpeed config: {args.deepspeed}", flush=True)
+        try:
+            if not os.path.exists(args.deepspeed):
+                raise FileNotFoundError(f"DeepSpeed config not found: {args.deepspeed}")
+            with open(args.deepspeed, "r") as f:
+                ds_config = json.load(f)
+            print(f"   Initializing DeepSpeed...", flush=True)
+            model_engine, optimizer, _, scheduler = deepspeed.initialize(
+                args=args,
+                model=trainer.model,
+                model_parameters=trainer.model.parameters(),
+                optimizer=optimizer,
+                lr_scheduler=scheduler,
+                config_params=ds_config
+            )
+            trainer.set_engine(model_engine)
+            trainer.model = model_engine
+            trainer.optimizer = optimizer
+            trainer.scheduler = scheduler
+            print(f"   ✓ DeepSpeed initialized", flush=True)
+        except Exception as e:
+            print(f"   ✗ DeepSpeed initialization failed: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+    else:
+        print(f"   Skipping DeepSpeed (not specified)", flush=True)
 
     # 加载数据
-    if not use_distributed or dist.get_rank() == 0:
-        print("Loading data...")
-    from src.data.dataset import create_dataloader
+    print(f"\n[8/10] Loading data...", flush=True)
+    try:
+        from src.data.dataset import create_dataloader
 
-    train_dataloader = create_dataloader(
-        arrow_dir=config["train_data"]["arrow_dir"],
-        mask_dir=config["train_data"]["mask_dir"],
-        batch_size=config.get("batch_size", 2),
-        image_size=config.get("image_size", 840),
-        num_workers=4,
-        shuffle=True,
-        distributed=use_distributed,
-        rank=dist.get_rank() if use_distributed else 0,
-        world_size=dist.get_world_size() if use_distributed else 1
-    )
+        print(f"   Arrow dir: {config['train_data']['arrow_dir']}", flush=True)
+        print(f"   Mask dir: {config['train_data']['mask_dir']}", flush=True)
 
-    if not use_distributed or dist.get_rank() == 0:
-        print(f"Training samples: {len(train_dataloader.dataset)}")
+        train_dataloader = create_dataloader(
+            arrow_dir=config["train_data"]["arrow_dir"],
+            mask_dir=config["train_data"]["mask_dir"],
+            batch_size=config.get("batch_size", 2),
+            image_size=config.get("image_size", 840),
+            num_workers=4,
+            shuffle=True,
+            distributed=use_distributed,
+            rank=dist.get_rank() if use_distributed else 0,
+            world_size=dist.get_world_size() if use_distributed else 1
+        )
+
+        print(f"   ✓ Dataloader created, {len(train_dataloader.dataset)} samples", flush=True)
+        print(f"   Batches per epoch: {len(train_dataloader)}", flush=True)
+    except Exception as e:
+        print(f"   ✗ Data loading failed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
     # 训练循环
-    if not use_distributed or dist.get_rank() == 0:
-        print("Starting training...")
+    print(f"\n[9/10] Preparing training loop...", flush=True)
+    print(f"   Max steps: {num_training_steps}", flush=True)
+    print(f"   Batch size: {config.get('batch_size', 2)}", flush=True)
+    print(f"   Gradient accumulation: {config.get('gradient_accumulation_steps', 1)}", flush=True)
+
     global_step = 0
     trainer.model.train()
+    print(f"   ✓ Model set to training mode", flush=True)
 
     # 创建进度条
     pbar = tqdm(total=num_training_steps, desc="Training") if not use_distributed or dist.get_rank() == 0 else None
+
+    print(f"\n[10/10] Starting training loop...", flush=True)
+    print("=" * 80, flush=True)
 
     epoch = 0
     while global_step < num_training_steps:
