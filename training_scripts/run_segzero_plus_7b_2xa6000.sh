@@ -215,6 +215,7 @@ echo "Logs will be saved to $LOG_FILE"
 echo ""
 
 python -m verl.trainer.main \
+    config=training_scripts/seg_zero_plus_7b.yaml \
     \
     `# ===== 项目配置 =====` \
     trainer.project_name="${WANDB_PROJECT}" \
