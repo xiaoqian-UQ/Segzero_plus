@@ -34,7 +34,7 @@ worker:
     fsdp:
       param_offload: false
       optimizer_offload: false
-      torch_dtype: bf16
+      torch_dtype: null
     offload:
       param_offload: false
       optimizer_offload: false
@@ -48,8 +48,6 @@ worker:
     enable_chunked_prefill: true
 
   ref:
-    fsdp:
-      torch_dtype: bf16
     offload:
       param_offload: false
 
