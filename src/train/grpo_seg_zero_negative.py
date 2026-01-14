@@ -55,6 +55,9 @@ class GRPOTrainerWithNegativePoints:
         """初始化模型并添加LoRA"""
         model_path = self.config["model_path"]
         model_type = None
+        use_deepspeed = self.config.get("use_deepspeed", False)
+        device_map = None if use_deepspeed else "auto"
+        low_cpu_mem_usage = True if use_deepspeed else False
         try:
             cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
             model_type = getattr(cfg, "model_type", None)
@@ -67,7 +70,8 @@ class GRPOTrainerWithNegativePoints:
                 model_path,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="flash_attention_2",
-                device_map="auto",
+                device_map=device_map,
+                low_cpu_mem_usage=low_cpu_mem_usage,
                 trust_remote_code=True
             )
         elif model_type == "qwen2_vl":
@@ -76,14 +80,16 @@ class GRPOTrainerWithNegativePoints:
                 model_path,
                 torch_dtype=torch.bfloat16,
                 attn_implementation="flash_attention_2",
-                device_map="auto",
+                device_map=device_map,
+                low_cpu_mem_usage=low_cpu_mem_usage,
                 trust_remote_code=True
             )
         else:
             model = AutoModelForCausalLM.from_pretrained(
                 model_path,
                 torch_dtype=torch.bfloat16,
-                device_map="auto",
+                device_map=device_map,
+                low_cpu_mem_usage=low_cpu_mem_usage,
                 trust_remote_code=True
             )
         
@@ -315,6 +321,8 @@ def main():
     # 加载配置
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
+
+    config["use_deepspeed"] = bool(args.deepspeed)
 
     if use_distributed:
         config["device"] = f"cuda:{args.local_rank}"
