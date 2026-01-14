@@ -2,7 +2,8 @@
 
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+from transformers import Qwen2VLForConditionalGeneration, Qwen2_5_VLForConditionalGeneration
 from peft import LoraConfig, get_peft_model
 from typing import List, Dict, Any
 import numpy as np
@@ -22,6 +23,7 @@ class GRPOTrainerWithNegativePoints:
         self.config = config
         self.device = config.get("device", "cuda")
         
+        self.is_vl_model = False
         # 初始化模型
         self.model = self._init_model()
         self.tokenizer = self._init_tokenizer()
@@ -51,12 +53,39 @@ class GRPOTrainerWithNegativePoints:
         
     def _init_model(self):
         """初始化模型并添加LoRA"""
-        model = AutoModelForCausalLM.from_pretrained(
-            self.config["model_path"],
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True
-        )
+        model_path = self.config["model_path"]
+        model_type = None
+        try:
+            cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+            model_type = getattr(cfg, "model_type", None)
+        except Exception:
+            model_type = None
+
+        if model_type == "qwen2_5_vl":
+            self.is_vl_model = True
+            model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                attn_implementation="flash_attention_2",
+                device_map="auto",
+                trust_remote_code=True
+            )
+        elif model_type == "qwen2_vl":
+            self.is_vl_model = True
+            model = Qwen2VLForConditionalGeneration.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                attn_implementation="flash_attention_2",
+                device_map="auto",
+                trust_remote_code=True
+            )
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+                trust_remote_code=True
+            )
         
         # LoRA配置
         lora_config = LoraConfig(
@@ -75,11 +104,15 @@ class GRPOTrainerWithNegativePoints:
     
     def _init_tokenizer(self):
         """初始化tokenizer"""
-        tokenizer = AutoTokenizer.from_pretrained(
+        if self.is_vl_model:
+            return AutoProcessor.from_pretrained(
+                self.config["model_path"],
+                trust_remote_code=True
+            )
+        return AutoTokenizer.from_pretrained(
             self.config["model_path"],
             trust_remote_code=True
         )
-        return tokenizer
     
     def train_step(self, batch: Dict[str, Any]) -> Dict[str, float]:
         """
@@ -167,7 +200,10 @@ class GRPOTrainerWithNegativePoints:
     
     def _sample_outputs(self, prompt: str, k: int) -> tuple:
         """采样K个输出及其log概率"""
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        if self.is_vl_model:
+            inputs = self.tokenizer(text=prompt, return_tensors="pt").to(self.device)
+        else:
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         
         outputs = []
         log_probs = []
@@ -184,10 +220,15 @@ class GRPOTrainerWithNegativePoints:
                     return_dict_in_generate=True
                 )
             
-            output_text = self.tokenizer.decode(
-                generated.sequences[0][inputs.input_ids.shape[1]:],
-                skip_special_tokens=True
-            )
+            seq = generated.sequences[:, inputs.input_ids.shape[1]:]
+            if hasattr(self.tokenizer, "batch_decode"):
+                output_text = self.tokenizer.batch_decode(
+                    seq, skip_special_tokens=True, clean_up_tokenization_spaces=False
+                )[0]
+            else:
+                output_text = self.tokenizer.decode(
+                    seq[0], skip_special_tokens=True
+                )
             outputs.append(output_text)
             
             # 计算log概率
