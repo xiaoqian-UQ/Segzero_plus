@@ -69,7 +69,6 @@ class vLLMRollout(BaseRollout):
             model=model_path,
             skip_tokenizer_init=False,
             tensor_parallel_size=config.tensor_parallel_size,
-            seed=config.seed,
             dtype=config.dtype,
             gpu_memory_utilization=config.gpu_memory_utilization,
             enforce_eager=config.enforce_eager,
@@ -89,8 +88,6 @@ class vLLMRollout(BaseRollout):
         sampling_kwargs = {"max_tokens": config.response_length, "detokenize": False}
         default_sampling_params = SamplingParams()
         for key in config.to_dict().keys():
-            if key == "seed":
-                continue
             if hasattr(default_sampling_params, key):
                 sampling_kwargs[key] = getattr(config, key)
 

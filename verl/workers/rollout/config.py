@@ -16,7 +16,6 @@ Rollout config
 """
 
 from dataclasses import asdict, dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -25,7 +24,6 @@ class RolloutConfig:
     temperature: float = 1.0
     top_k: int = -1
     top_p: float = 1.0
-    seed: Optional[int] = None
     dtype: str = "bfloat16"
     gpu_memory_utilization: float = 0.5
     ignore_eos: bool = False

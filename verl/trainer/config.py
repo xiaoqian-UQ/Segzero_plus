@@ -36,7 +36,6 @@ class DataConfig:
     train_files: str = ""
     val_files: str = ""
     prompt_key: str = "prompt"
-    image_key: str = "image"  # For multimodal datasets
     max_prompt_length: int = 512
     max_response_length: int = 512
     rollout_batch_size: int = 512
@@ -54,7 +53,6 @@ class AlgorithmConfig:
     gamma: float = 1.0
     lam: float = 1.0
     adv_estimator: str = "gae"
-    norm_adv_by_std_in_grpo: bool = True  # Normalize advantages by std in GRPO
     kl_penalty: str = "kl"
     kl_type: str = "fixed"
     kl_coef: float = 1e-3
@@ -65,7 +63,6 @@ class AlgorithmConfig:
 @dataclass
 class TrainerConfig:
     total_episodes: int = 10
-    total_training_steps: Optional[int] = None  # Alternative to total_episodes
     max_steps: Optional[int] = None
     project_name: str = "easy_r1"
     experiment_name: str = "demo"
@@ -74,8 +71,6 @@ class TrainerConfig:
     nnodes: int = 1
     n_gpus_per_node: int = 8
     save_freq: int = -1
-    val_freq: int = -1  # Validation frequency
-    log_freq: int = 10  # Logging frequency
     load_checkpoint_path: Optional[str] = None
     val_before_train: bool = True
     val_only: bool = False
@@ -84,33 +79,10 @@ class TrainerConfig:
     remove_previous_ckpt: bool = False
     del_local_ckpt_after_load: bool = False
     save_checkpoint_path: Optional[str] = None
-    save_path: Optional[str] = None  # Alias for save_checkpoint_path
 
     def post_init(self):
-        if self.save_checkpoint_path is None and self.save_path is None:
+        if self.save_checkpoint_path is None:
             self.save_checkpoint_path = os.path.join("checkpoints", self.project_name, self.experiment_name)
-        elif self.save_path is not None:
-            self.save_checkpoint_path = self.save_path
-
-        # If total_training_steps is specified, use it instead of total_episodes
-        if self.total_training_steps is not None:
-            self.total_episodes = self.total_training_steps
-
-
-@dataclass
-class CustomConfig:
-    reward_function: Optional[str] = None
-    use_negative_reward: bool = True
-    negative_reward_weight: float = 1.0
-    use_confused_regions: bool = True
-    confused_regions_dir: Optional[str] = None
-    negative_alpha: float = 1.0
-    negative_beta: float = 0.5
-    max_negative_points: int = 2
-    use_strict_format: bool = True
-    prompt_template: str = "negative_point"
-    sam_model_path: Optional[str] = None
-    image_size: int = 840
 
 
 @dataclass
@@ -119,13 +91,10 @@ class PPOConfig:
     worker: WorkerConfig = field(default_factory=WorkerConfig)
     algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
     trainer: TrainerConfig = field(default_factory=TrainerConfig)
-    custom: CustomConfig = field(default_factory=CustomConfig)
 
     def post_init(self):
         self.worker.rollout.prompt_length = self.data.max_prompt_length
         self.worker.rollout.response_length = self.data.max_response_length
-        if self.worker.rollout.seed is None:
-            self.worker.rollout.seed = self.data.seed
 
     def deep_post_init(self):
         recursive_post_init(self)

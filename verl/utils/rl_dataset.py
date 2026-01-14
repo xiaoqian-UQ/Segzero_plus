@@ -13,12 +13,11 @@
 # limitations under the License.
 
 import math
-import os
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 import torch
-from datasets import DatasetDict, load_dataset, load_from_disk
+from datasets import load_dataset, load_from_disk
 from PIL import Image
 from PIL.Image import Image as ImageObject
 from torch.utils.data import Dataset
@@ -26,7 +25,6 @@ from transformers import PreTrainedTokenizer, ProcessorMixin
 
 import verl.utils.torch_functional as verl_F
 from verl.models.transformers.qwen2_5_vl import get_rope_index
-from verl.utils.reward_score.prompt_templates import NEGATIVE_POINT_PROMPT
 
 
 def collate_fn(features: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -89,65 +87,19 @@ class RLHFDataset(Dataset):
         self.max_pixels = max_pixels
         self.min_pixels = min_pixels
 
-        self.dataset = self._load_dataset(data_path)
+        self.dataset = load_dataset(data_path)['train']
+        # self.dataset = load_from_disk(data_path)['train'] # you can load from disk if you have already downloaded the dataset
                 
-        self.user_prompt = "<image>" + NEGATIVE_POINT_PROMPT.strip()
+        self.user_prompt = "<image>" \
+            "Please find '{Question}' with bbox and points." \
+            "Compare the difference between objects and find the most closely matched one." \
+            "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags." \
+            "Output the one bbox and points of two largest inscribed circles inside the interested object in JSON format." \
+            "i.e., <think> thinking process here </think>" \
+            "<answer>{Answer}</answer>"
 
     def __len__(self):
         return len(self.dataset)
-
-    def _load_dataset(self, data_path: str):
-        if os.path.isdir(data_path):
-            # Check if it's a saved Dataset directory with state.json
-            if os.path.exists(os.path.join(data_path, "state.json")):
-                dataset = load_from_disk(data_path)
-                if isinstance(dataset, DatasetDict):
-                    if "train" in dataset:
-                        return dataset["train"]
-                    return next(iter(dataset.values()))
-                return dataset
-
-            # Check for sharded arrow files (e.g., *-train-*.arrow)
-            import glob
-            train_arrows = glob.glob(os.path.join(data_path, "*-train-*.arrow"))
-            if train_arrows:
-                # Load from arrow files
-                dataset = load_dataset("arrow", data_files=train_arrows)
-                return dataset["train"]
-
-            # Check for dataset_info.json (HuggingFace cache format)
-            if os.path.exists(os.path.join(data_path, "dataset_info.json")):
-                # Try to load as arrow dataset
-                all_arrows = glob.glob(os.path.join(data_path, "*.arrow"))
-                if all_arrows:
-                    dataset = load_dataset("arrow", data_files=all_arrows)
-                    return dataset["train"]
-
-            # Fallback: try load_from_disk anyway
-            try:
-                dataset = load_from_disk(data_path)
-                if isinstance(dataset, DatasetDict):
-                    if "train" in dataset:
-                        return dataset["train"]
-                    return next(iter(dataset.values()))
-                return dataset
-            except Exception as e:
-                raise FileNotFoundError(
-                    f"Directory {data_path} does not contain a valid dataset. "
-                    f"Expected either state.json (saved Dataset) or *-train-*.arrow files. Error: {e}"
-                )
-
-        if os.path.isfile(data_path):
-            _, ext = os.path.splitext(data_path)
-            ext = ext.lower()
-            if ext == ".parquet":
-                return load_dataset("parquet", data_files=data_path)["train"]
-            if ext in {".json", ".jsonl"}:
-                return load_dataset("json", data_files=data_path)["train"]
-            if ext == ".arrow":
-                return load_dataset("arrow", data_files=data_path)["train"]
-
-        return load_dataset(data_path)["train"]
 
     def __getitem__(self, index):
         """
@@ -156,13 +108,8 @@ class RLHFDataset(Dataset):
         row_dict = self.dataset[index]
         messages = [
             {"role": "system", "content": self.system_prompt},
-            {
-                "role": "user",
-                "content": self.user_prompt.format(
-                    Question=row_dict["problem"].lower().strip("."),
-                    Answer='{"bbox": [10,100,200,210], "points_pos": [[30,110], [35,180]], "points_neg": [[250,150]]}',
-                ),
-            },
+            {"role": "user", "content": self.user_prompt.format(Question=row_dict["problem"].lower().strip("."),
+                                                                Answer="{'bbox': [10,100,200,210], 'points_1': [30,110], 'points_2': [35,180]}")},
         ]
         prompt = self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
 
