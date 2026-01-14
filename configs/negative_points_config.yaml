@@ -1,0 +1,51 @@
+# configs/negative_points_config.yaml
+
+# 模型配置
+model_path: "Qwen/Qwen2.5-VL-7B-Instruct"
+sam_config: "configs/sam2.1/sam2.1_hiera_l.yaml"
+sam_checkpoint: "checkpoints/sam2.1_hiera_large.pt"
+
+# LoRA配置
+lora_r: 64
+lora_alpha: 128
+lora_dropout: 0.05
+
+# GRPO配置
+group_size: 8
+clip_lower: -0.2
+clip_upper: 0.28
+temperature: 0.7
+
+# 奖励配置
+alpha: 1.0       # 负点落在GT内的惩罚系数
+beta: 1.0        # 负点落在混淆区域的奖励系数
+lambda_neg: 0.3  # 负点奖励权重
+lambda_format: 0.1  # 格式奖励权重
+
+# 训练配置
+batch_size: 2
+gradient_accumulation_steps: 8
+learning_rate: 1.0e-5
+warmup_steps: 100
+max_steps: 5000
+save_steps: 500
+eval_steps: 200
+
+# 数据配置
+train_data:
+  arrow_dir: "refcocog/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e"
+  mask_dir: "/mnt/xiaoqian/dataset/refcocog/ref_coc_og_9k_840/gt_masks"
+val_data: "data/ReasonSeg/val"
+
+# 图像大小 (与mask匹配)
+image_size: 840
+
+# DeepSpeed配置
+deepspeed:
+  zero_stage: 2
+  offload_optimizer: false
+  offload_param: false
+
+# 设备配置
+device: "cuda"
+num_gpus: 2
