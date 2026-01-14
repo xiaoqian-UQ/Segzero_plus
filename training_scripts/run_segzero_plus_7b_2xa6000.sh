@@ -217,63 +217,29 @@ echo ""
 python -m verl.trainer.main \
     config=training_scripts/seg_zero_plus_7b.yaml \
     \
-    `# ===== 项目配置 =====` \
+    `# ===== 动态路径配置 =====` \
+    data.train_files="${TRAIN_DATA}" \
+    data.val_files="${VAL_DATA}" \
+    worker.actor.model.model_path="${BASE_MODEL}" \
+    trainer.save_path="${OUTPUT_DIR}" \
+    \
+    `# ===== 训练超参数覆盖 =====` \
     trainer.project_name="${WANDB_PROJECT}" \
     trainer.experiment_name="${WANDB_RUN_NAME}" \
     trainer.total_training_steps=${NUM_STEPS} \
     trainer.save_freq=${SAVE_FREQ} \
     trainer.val_freq=${VAL_FREQ} \
     trainer.log_freq=${LOG_FREQ} \
-    trainer.save_path="${OUTPUT_DIR}" \
     \
-    `# ===== 数据配置 =====` \
-    data.train_files="${TRAIN_DATA}" \
-    data.val_files="${VAL_DATA}" \
-    data.prompt_key="prompt" \
-    data.image_key="image" \
-    data.max_prompt_length=2048 \
-    data.max_response_length=${MAX_NEW_TOKENS} \
+    `# ===== 显存优化参数覆盖 =====` \
+    worker.actor.micro_batch_size_per_device_for_update=${MICRO_BATCH} \
+    worker.actor.kl_loss_coef=${KL_COEF} \
+    worker.rollout.n=${NUM_SAMPLES} \
+    worker.rollout.temperature=${TEMPERATURE} \
+    worker.rollout.tensor_parallel_size=${TENSOR_PARALLEL} \
+    worker.rollout.gpu_memory_utilization=${GPU_MEM_UTIL} \
     \
-    `# ===== Actor模型配置 =====` \
-    actor_rollout_ref.model.path="${BASE_MODEL}" \
-    actor_rollout_ref.model.enable_gradient_checkpointing=true \
-    \
-    `# ===== Actor优化器配置 =====` \
-    actor_rollout_ref.actor.optim.lr=${LEARNING_RATE} \
-    actor_rollout_ref.actor.optim.weight_decay=${WEIGHT_DECAY} \
-    actor_rollout_ref.actor.optim.strategy="adamw_bf16" \
-    \
-    `# ===== Actor PPO配置 =====` \
-    actor_rollout_ref.actor.ppo_mini_batch_size=4 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${MICRO_BATCH} \
-    actor_rollout_ref.actor.ppo_epochs=1 \
-    actor_rollout_ref.actor.grad_accum_steps=${GRAD_ACCUM} \
-    \
-    `# ===== KL散度配置 =====` \
-    actor_rollout_ref.actor.use_kl_loss=true \
-    actor_rollout_ref.actor.kl_loss_coef=${KL_COEF} \
-    actor_rollout_ref.actor.kl_loss_type="low_var_kl" \
-    \
-    `# ===== FSDP配置 =====` \
-    actor_rollout_ref.actor.fsdp.torch_dtype="bf16" \
-    actor_rollout_ref.actor.fsdp.wrap_policy="qwen2_vl" \
-    \
-    `# ===== Rollout采样配置 =====` \
-    actor_rollout_ref.rollout.n=${NUM_SAMPLES} \
-    actor_rollout_ref.rollout.temperature=${TEMPERATURE} \
-    actor_rollout_ref.rollout.top_p=1.0 \
-    actor_rollout_ref.rollout.max_new_tokens=${MAX_NEW_TOKENS} \
-    actor_rollout_ref.rollout.tensor_parallel_size=${TENSOR_PARALLEL} \
-    actor_rollout_ref.rollout.gpu_memory_utilization=${GPU_MEM_UTIL} \
-    \
-    `# ===== Reference模型配置 =====` \
-    actor_rollout_ref.ref.fsdp.torch_dtype="bf16" \
-    \
-    `# ===== GRPO算法配置 =====` \
-    algorithm.norm_adv_by_std_in_grpo=true \
-    algorithm.adv_estimator="grpo" \
-    \
-    `# ===== 自定义配置 (负点奖励) =====` \
+    `# ===== 自定义配置覆盖 =====` \
     custom.use_negative_reward=${USE_NEGATIVE_REWARD} \
     custom.negative_reward_weight=${NEGATIVE_REWARD_WEIGHT} \
     custom.use_confused_regions=${USE_CONFUSED_REGIONS} \
@@ -281,8 +247,6 @@ python -m verl.trainer.main \
     custom.negative_alpha=${NEGATIVE_ALPHA} \
     custom.negative_beta=${NEGATIVE_BETA} \
     custom.max_negative_points=${MAX_NEGATIVE_POINTS} \
-    custom.use_strict_format=${USE_STRICT_FORMAT} \
-    custom.prompt_template="${PROMPT_TEMPLATE}" \
     custom.sam_model_path="${SAM_MODEL}" \
     custom.image_size=${IMAGE_SIZE} \
     \

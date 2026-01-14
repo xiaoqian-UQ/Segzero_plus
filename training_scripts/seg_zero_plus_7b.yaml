@@ -22,10 +22,6 @@ worker:
     micro_batch_size_per_device_for_update: 1
     micro_batch_size_per_device_for_experience: 1
     max_grad_norm: 1.0
-    ppo_mini_batch_size: 4
-    ppo_micro_batch_size_per_gpu: 1
-    ppo_epochs: 1
-    grad_accum_steps: 16
     use_kl_loss: true
     kl_loss_coef: 5.0e-3
     kl_loss_type: low_var_kl
@@ -35,12 +31,10 @@ worker:
     optim:
       lr: 1.0e-6
       weight_decay: 1.0e-2
-      strategy: adamw_bf16
     fsdp:
       param_offload: false
       optimizer_offload: false
       torch_dtype: bf16
-      wrap_policy: qwen2_vl
     offload:
       param_offload: false
       optimizer_offload: false
@@ -48,7 +42,6 @@ worker:
   rollout:
     temperature: 1.0
     top_p: 1.0
-    max_new_tokens: 512
     tensor_parallel_size: 2
     gpu_memory_utilization: 0.88
     n: 4
