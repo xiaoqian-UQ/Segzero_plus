@@ -98,12 +98,44 @@ class RLHFDataset(Dataset):
 
     def _load_dataset(self, data_path: str):
         if os.path.isdir(data_path):
-            dataset = load_from_disk(data_path)
-            if isinstance(dataset, DatasetDict):
-                if "train" in dataset:
+            # Check if it's a saved Dataset directory with state.json
+            if os.path.exists(os.path.join(data_path, "state.json")):
+                dataset = load_from_disk(data_path)
+                if isinstance(dataset, DatasetDict):
+                    if "train" in dataset:
+                        return dataset["train"]
+                    return next(iter(dataset.values()))
+                return dataset
+
+            # Check for sharded arrow files (e.g., *-train-*.arrow)
+            import glob
+            train_arrows = glob.glob(os.path.join(data_path, "*-train-*.arrow"))
+            if train_arrows:
+                # Load from arrow files
+                dataset = load_dataset("arrow", data_files=train_arrows)
+                return dataset["train"]
+
+            # Check for dataset_info.json (HuggingFace cache format)
+            if os.path.exists(os.path.join(data_path, "dataset_info.json")):
+                # Try to load as arrow dataset
+                all_arrows = glob.glob(os.path.join(data_path, "*.arrow"))
+                if all_arrows:
+                    dataset = load_dataset("arrow", data_files=all_arrows)
                     return dataset["train"]
-                return next(iter(dataset.values()))
-            return dataset
+
+            # Fallback: try load_from_disk anyway
+            try:
+                dataset = load_from_disk(data_path)
+                if isinstance(dataset, DatasetDict):
+                    if "train" in dataset:
+                        return dataset["train"]
+                    return next(iter(dataset.values()))
+                return dataset
+            except Exception as e:
+                raise FileNotFoundError(
+                    f"Directory {data_path} does not contain a valid dataset. "
+                    f"Expected either state.json (saved Dataset) or *-train-*.arrow files. Error: {e}"
+                )
 
         if os.path.isfile(data_path):
             _, ext = os.path.splitext(data_path)
