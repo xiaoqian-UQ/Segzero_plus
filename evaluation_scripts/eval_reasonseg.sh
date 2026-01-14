@@ -29,3 +29,6 @@ done
 wait
 
 python evaluation_scripts/calculate_iou.py --output_dir $OUTPUT_PATH
+
+#gIoU (average of per image IoU): 0.6229
+# cIoU (total_intersection / total_union): 0.5284
