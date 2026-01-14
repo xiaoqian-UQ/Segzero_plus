@@ -1,0 +1,12 @@
+[2026-01-14 16:22:41,886] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
+Detected VISIBLE_DEVICES=0,1 but ignoring it because one or several of --include/--exclude/--num_gpus/--num_nodes cl args were used. If you want to use CUDA_VISIBLE_DEVICES don't pass any of these arguments to deepspeed.
+[2026-01-14 16:22:41,887] [INFO] [runner.py:630:main] cmd = /home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMCwgMV19 --master_addr=127.0.0.1 --master_port=29500 --enable_each_rank_log=None --log_level=info src/train/grpo_seg_zero_negative.py --config configs/negative_points_config.yaml --output_dir outputs/negative_points_exp1 --deepspeed configs/deepspeed_zero2.json
+[2026-01-14 16:22:45,595] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0, 1]}
+[2026-01-14 16:22:45,595] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=2, node_rank=0
+[2026-01-14 16:22:45,595] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0, 1]})
+[2026-01-14 16:22:45,595] [INFO] [launch.py:180:main] dist_world_size=2
+[2026-01-14 16:22:45,595] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0,1
+[2026-01-14 16:22:45,595] [INFO] [launch.py:272:main] process 110472 spawned with command: ['/home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12', '-u', 'src/train/grpo_seg_zero_negative.py', '--local_rank=0', '--config', 'configs/negative_points_config.yaml', '--output_dir', 'outputs/negative_points_exp1', '--deepspeed', 'configs/deepspeed_zero2.json']
+[2026-01-14 16:22:45,595] [INFO] [launch.py:272:main] process 110473 spawned with command: ['/home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12', '-u', 'src/train/grpo_seg_zero_negative.py', '--local_rank=1', '--config', 'configs/negative_points_config.yaml', '--output_dir', 'outputs/negative_points_exp1', '--deepspeed', 'configs/deepspeed_zero2.json']
+[2026-01-14 16:22:50,596] [INFO] [launch.py:367:main] Process 110473 exits successfully.
+[2026-01-14 16:22:50,596] [INFO] [launch.py:367:main] Process 110472 exits successfully.
