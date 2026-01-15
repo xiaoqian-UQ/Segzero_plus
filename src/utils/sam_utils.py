@@ -15,12 +15,7 @@ class SAM2Wrapper:
         checkpoint: str = "checkpoints/sam2.1_hiera_large.pt",
         device: str = "cuda"
     ):
-        """
-        Args:
-            model_cfg: SAM2配置文件路径
-            checkpoint: SAM2权重文件路径
-            device: 计算设备
-        """
+
         self.device = device
         self.predictor = self._load_predictor(model_cfg, checkpoint, device)
         self.predictor.model.to(device)

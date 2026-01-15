@@ -52,7 +52,7 @@ def test_gradient_flow():
         batch = {
             "image": [np.random.randint(0, 255, (840, 840, 3), dtype=np.uint8)],
             "query": ["the red cup on the table"],
-            "gt_mask": [np.random.randint(0, 2, (840, 840), dtype=np.float32)]
+            "gt_mask": [np.random.randint(0, 2, (840, 840)).astype(np.float32)]
         }
         print("✓ Mock batch created")
 
