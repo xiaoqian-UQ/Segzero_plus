@@ -33,7 +33,7 @@ eval_steps: 200
 
 # 数据配置
 train_data:
-  arrow_dir: "refcocog/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e"
+  arrow_dir: "/mnt/xiaoqian/dataset/refcocog/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/"
   mask_dir: "/mnt/xiaoqian/dataset/refcocog/ref_coc_og_9k_840/gt_masks"
 val_data: "data/ReasonSeg/val"
 

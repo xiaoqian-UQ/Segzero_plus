@@ -1,7 +1,7 @@
 #!/bin/bash
 
 REASONING_MODEL_PATH="Ricky06662/Seg-Zero-7B-Best-on-ReasonSegTest"
-SEGMENTATION_MODEL_PATH="facebook/sam2-hiera-large"
+SEGMENTATION_MODEL_PATH="facebook/sam2.1-hiera-large"
 
 
 OUTPUT_PATH="./reasonseg_eval_results"

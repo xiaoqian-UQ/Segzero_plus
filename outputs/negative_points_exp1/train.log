@@ -1,12 +1,145 @@
-[2026-01-14 16:22:41,886] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
+[2026-01-14 20:22:22,620] [WARNING] [runner.py:232:fetch_hostfile] Unable to find hostfile, will proceed with training with local resources only.
 Detected VISIBLE_DEVICES=0,1 but ignoring it because one or several of --include/--exclude/--num_gpus/--num_nodes cl args were used. If you want to use CUDA_VISIBLE_DEVICES don't pass any of these arguments to deepspeed.
-[2026-01-14 16:22:41,887] [INFO] [runner.py:630:main] cmd = /home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMCwgMV19 --master_addr=127.0.0.1 --master_port=29500 --enable_each_rank_log=None --log_level=info src/train/grpo_seg_zero_negative.py --config configs/negative_points_config.yaml --output_dir outputs/negative_points_exp1 --deepspeed configs/deepspeed_zero2.json
-[2026-01-14 16:22:45,595] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0, 1]}
-[2026-01-14 16:22:45,595] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=2, node_rank=0
-[2026-01-14 16:22:45,595] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0, 1]})
-[2026-01-14 16:22:45,595] [INFO] [launch.py:180:main] dist_world_size=2
-[2026-01-14 16:22:45,595] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0,1
-[2026-01-14 16:22:45,595] [INFO] [launch.py:272:main] process 110472 spawned with command: ['/home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12', '-u', 'src/train/grpo_seg_zero_negative.py', '--local_rank=0', '--config', 'configs/negative_points_config.yaml', '--output_dir', 'outputs/negative_points_exp1', '--deepspeed', 'configs/deepspeed_zero2.json']
-[2026-01-14 16:22:45,595] [INFO] [launch.py:272:main] process 110473 spawned with command: ['/home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12', '-u', 'src/train/grpo_seg_zero_negative.py', '--local_rank=1', '--config', 'configs/negative_points_config.yaml', '--output_dir', 'outputs/negative_points_exp1', '--deepspeed', 'configs/deepspeed_zero2.json']
-[2026-01-14 16:22:50,596] [INFO] [launch.py:367:main] Process 110473 exits successfully.
-[2026-01-14 16:22:50,596] [INFO] [launch.py:367:main] Process 110472 exits successfully.
+[2026-01-14 20:22:22,620] [INFO] [runner.py:630:main] cmd = /home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12 -u -m deepspeed.launcher.launch --world_info=eyJsb2NhbGhvc3QiOiBbMCwgMV19 --master_addr=127.0.0.1 --master_port=29500 --enable_each_rank_log=None --log_level=info src/train/grpo_seg_zero_negative.py --config configs/negative_points_config.yaml --output_dir outputs/negative_points_exp1 --deepspeed configs/deepspeed_zero2.json
+[2026-01-14 20:22:26,174] [INFO] [launch.py:162:main] WORLD INFO DICT: {'localhost': [0, 1]}
+[2026-01-14 20:22:26,174] [INFO] [launch.py:168:main] nnodes=1, num_local_procs=2, node_rank=0
+[2026-01-14 20:22:26,174] [INFO] [launch.py:179:main] global_rank_mapping=defaultdict(<class 'list'>, {'localhost': [0, 1]})
+[2026-01-14 20:22:26,174] [INFO] [launch.py:180:main] dist_world_size=2
+[2026-01-14 20:22:26,174] [INFO] [launch.py:184:main] Setting CUDA_VISIBLE_DEVICES=0,1
+[2026-01-14 20:22:26,175] [INFO] [launch.py:272:main] process 53588 spawned with command: ['/home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12', '-u', 'src/train/grpo_seg_zero_negative.py', '--local_rank=0', '--config', 'configs/negative_points_config.yaml', '--output_dir', 'outputs/negative_points_exp1', '--deepspeed', 'configs/deepspeed_zero2.json']
+[2026-01-14 20:22:26,175] [INFO] [launch.py:272:main] process 53589 spawned with command: ['/home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12', '-u', 'src/train/grpo_seg_zero_negative.py', '--local_rank=1', '--config', 'configs/negative_points_config.yaml', '--output_dir', 'outputs/negative_points_exp1', '--deepspeed', 'configs/deepspeed_zero2.json']
+================================================================================
+GRPO Negative Points Training - START
+================================================================================
+
+[1/10] Parsing arguments...
+   Config: configs/negative_points_config.yaml
+   Output dir: outputs/negative_points_exp1
+   Local rank: 1
+   DeepSpeed: configs/deepspeed_zero2.json
+   Distributed: True
+
+[2/10] Initializing distributed training...
+================================================================================
+GRPO Negative Points Training - START
+================================================================================
+
+[1/10] Parsing arguments...
+   Config: configs/negative_points_config.yaml
+   Output dir: outputs/negative_points_exp1
+   Local rank: 0
+   DeepSpeed: configs/deepspeed_zero2.json
+   Distributed: True
+
+[2/10] Initializing distributed training...
+   Rank: 1, World size: 2
+
+[3/10] Loading config from configs/negative_points_config.yaml...
+   ✓ Config loaded successfully
+   Model: /mnt/xiaoqian/model/pretrained_models/Seg-Zero-7B/
+   Batch size: 2
+   Max steps: 5000
+
+[4/10] Creating output directory...
+
+[5/10] Initializing trainer (this may take a few minutes)...
+   Rank: 0, World size: 2
+
+[3/10] Loading config from configs/negative_points_config.yaml...
+   ✓ Config loaded successfully
+   Model: /mnt/xiaoqian/model/pretrained_models/Seg-Zero-7B/
+   Batch size: 2
+   Max steps: 5000
+
+[4/10] Creating output directory...
+   ✓ Output dir: outputs/negative_points_exp1
+
+[5/10] Initializing trainer (this may take a few minutes)...
+You are attempting to use Flash Attention 2.0 with a model not initialized on GPU. Make sure to move the model to GPU after initializing it on CPU with `model.to('cuda')`.
+You are attempting to use Flash Attention 2.0 with a model not initialized on GPU. Make sure to move the model to GPU after initializing it on CPU with `model.to('cuda')`.
+Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/4 [00:00<?, ?it/s]Loading checkpoint shards: 100%|██████████| 4/4 [00:00<00:00, 57.58it/s]
+Loading checkpoint shards: 100%|██████████| 4/4 [00:00<00:00, 49.29it/s]
+trainable params: 40,370,176 || all params: 8,332,536,832 || trainable%: 0.4845
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+trainable params: 40,370,176 || all params: 8,332,536,832 || trainable%: 0.4845
+Using a slow image processor as `use_fast` is unset and a slow processor was saved with this model. `use_fast=True` will be the default behavior in v4.52, even if the model was saved with a slow processor. This will result in minor differences in outputs. You'll still be able to use a slow processor with `use_fast=False`.
+   ✓ Trainer initialized
+
+[6/10] Initializing optimizer and scheduler...
+   ✓ Optimizer: AdamW, LR=1e-05
+   ✓ Scheduler: warmup=100, total=5000
+
+[7/10] DeepSpeed initialization...
+   DeepSpeed config: configs/deepspeed_zero2.json
+   Initializing DeepSpeed...
+   ✓ Trainer initialized
+
+[6/10] Initializing optimizer and scheduler...
+   ✓ Optimizer: AdamW, LR=1e-05
+   ✓ Scheduler: warmup=100, total=5000
+
+[7/10] DeepSpeed initialization...
+   DeepSpeed config: configs/deepspeed_zero2.json
+   Initializing DeepSpeed...
+   ✗ DeepSpeed initialization failed: CUDA out of memory. Tried to allocate 130.00 MiB. GPU 1 has a total capacity of 47.54 GiB of which 28.62 MiB is free. Process 80556 has 12.89 GiB memory in use. Process 81089 has 12.76 GiB memory in use. Process 82245 has 12.96 GiB memory in use. Including non-PyTorch memory, this process has 8.86 GiB memory in use. Of the allocated memory 8.39 GiB is allocated by PyTorch, and 176.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/home/s4986935/Segzero_plus/src/train/grpo_seg_zero_negative.py", line 407, in main
+    model_engine, optimizer, _, scheduler = deepspeed.initialize(
+                                            ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/deepspeed/__init__.py", line 203, in initialize
+    engine = DeepSpeedEngine(args=args,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/deepspeed/runtime/engine.py", line 303, in __init__
+    self._configure_distributed_model(model)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/deepspeed/runtime/engine.py", line 1362, in _configure_distributed_model
+    self.module.to(self.device)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1343, in to
+    return self._apply(convert)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  [Previous line repeated 4 more times]
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 930, in _apply
+    param_applied = fn(param)
+                    ^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1329, in convert
+    return t.to(
+           ^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 130.00 MiB. GPU 1 has a total capacity of 47.54 GiB of which 28.62 MiB is free. Process 80556 has 12.89 GiB memory in use. Process 81089 has 12.76 GiB memory in use. Process 82245 has 12.96 GiB memory in use. Including non-PyTorch memory, this process has 8.86 GiB memory in use. Of the allocated memory 8.39 GiB is allocated by PyTorch, and 176.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+   ✗ DeepSpeed initialization failed: CUDA out of memory. Tried to allocate 130.00 MiB. GPU 0 has a total capacity of 47.54 GiB of which 71.56 MiB is free. Process 72625 has 12.92 GiB memory in use. Process 74718 has 12.82 GiB memory in use. Process 75602 has 12.85 GiB memory in use. Including non-PyTorch memory, this process has 8.86 GiB memory in use. Of the allocated memory 8.39 GiB is allocated by PyTorch, and 176.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/home/s4986935/Segzero_plus/src/train/grpo_seg_zero_negative.py", line 407, in main
+    model_engine, optimizer, _, scheduler = deepspeed.initialize(
+                                            ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/deepspeed/__init__.py", line 203, in initialize
+    engine = DeepSpeedEngine(args=args,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/deepspeed/runtime/engine.py", line 303, in __init__
+    self._configure_distributed_model(model)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/deepspeed/runtime/engine.py", line 1362, in _configure_distributed_model
+    self.module.to(self.device)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1343, in to
+    return self._apply(convert)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  [Previous line repeated 4 more times]
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 930, in _apply
+    param_applied = fn(param)
+                    ^^^^^^^^^
+  File "/home/s4986935/miniconda3/envs/visionreasoner/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1329, in convert
+    return t.to(
+           ^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 130.00 MiB. GPU 0 has a total capacity of 47.54 GiB of which 71.56 MiB is free. Process 72625 has 12.92 GiB memory in use. Process 74718 has 12.82 GiB memory in use. Process 75602 has 12.85 GiB memory in use. Including non-PyTorch memory, this process has 8.86 GiB memory in use. Of the allocated memory 8.39 GiB is allocated by PyTorch, and 176.44 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+[rank0]:[W114 20:22:37.717423560 ProcessGroupNCCL.cpp:1496] Warning: WARNING: destroy_process_group() was not called before program exit, which can leak resources. For more info, please see https://pytorch.org/docs/stable/distributed.html#shutdown (function operator())
+[2026-01-14 20:22:38,180] [INFO] [launch.py:335:sigkill_handler] Killing subprocess 53588
+[2026-01-14 20:22:38,187] [INFO] [launch.py:335:sigkill_handler] Killing subprocess 53589
+[2026-01-14 20:22:38,187] [ERROR] [launch.py:341:sigkill_handler] ['/home/s4986935/miniconda3/envs/visionreasoner/bin/python3.12', '-u', 'src/train/grpo_seg_zero_negative.py', '--local_rank=1', '--config', 'configs/negative_points_config.yaml', '--output_dir', 'outputs/negative_points_exp1', '--deepspeed', 'configs/deepspeed_zero2.json'] exits with return code = 1

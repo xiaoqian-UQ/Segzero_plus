@@ -83,7 +83,7 @@ python3 test_training_init.py
 
 ```bash
 # 检查 arrow 数据路径
-ls -la refcocog/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/*.arrow
+ls -la /mnt/xiaoqian/dataset/refcocog/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/
 
 # 检查 mask 路径
 ls -la /mnt/xiaoqian/dataset/refcocog/ref_coc_og_9k_840/gt_masks/ | head
@@ -124,7 +124,7 @@ batch_size: 1  # 从2改为1
 from datasets import load_dataset
 import glob
 
-arrow_dir = "refcocog/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e"
+arrow_dir = "/mnt/xiaoqian/dataset/refcocog/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/"
 arrow_files = glob.glob(f"{arrow_dir}/*.arrow")
 print(f"Found {len(arrow_files)} arrow files")
 

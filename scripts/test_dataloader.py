@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # 配置路径 - 根据你的实际路径修改
-ARROW_DIR = "refcocog/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e"
+ARROW_DIR = "/mnt/xiaoqian/dataset/refcocog/refcocog_9k/Ricky06662___ref_coc_og_9k_840/default/0.0.0/eb5ec70f57b92d0eacccbdc817e487da3292876e/"
 MASK_DIR = "/mnt/xiaoqian/dataset/refcocog/ref_coc_og_9k_840/gt_masks"
 
 # 创建dataloader
