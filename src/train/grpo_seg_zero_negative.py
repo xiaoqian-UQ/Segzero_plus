@@ -288,7 +288,8 @@ class GRPOTrainerWithNegativePoints:
                 )
 
             # 提取生成的token序列（去除输入部分）
-            seq = generated.sequences[:, inputs["input_ids"].shape[1]:]
+            # generated.sequences 是 [1, total_len]，取第一个样本，只保留生成的部分
+            seq = generated.sequences[0, inputs["input_ids"].shape[1]:]  # [seq_len]
             sequences.append(seq)
 
             # 解码为文本
