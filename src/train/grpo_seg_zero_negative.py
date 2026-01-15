@@ -358,9 +358,15 @@ class GRPOTrainerWithNegativePoints:
         ).squeeze(-1)  # (1, seq_len)
 
         # 修复2: Mask掉EOS后的PAD token
-        # 获取tokenizer的特殊token ID
-        pad_token_id = self.tokenizer.pad_token_id
-        eos_token_id = self.tokenizer.eos_token_id
+        # 获取tokenizer的特殊token ID（兼容VL模型的processor）
+        if self.is_vl_model and hasattr(self.tokenizer, 'tokenizer'):
+            # VL模型：processor.tokenizer
+            pad_token_id = self.tokenizer.tokenizer.pad_token_id
+            eos_token_id = self.tokenizer.tokenizer.eos_token_id
+        else:
+            # 普通模型
+            pad_token_id = self.tokenizer.pad_token_id
+            eos_token_id = self.tokenizer.eos_token_id
 
         # 创建mask：在EOS之前的token为1，EOS及之后为0
         mask = torch.ones_like(sequence, dtype=torch.float)
