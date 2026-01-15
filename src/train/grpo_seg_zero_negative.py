@@ -567,6 +567,7 @@ class GRPOTrainerWithNegativePoints:
     ) -> torch.Tensor:
         """
         一次前向传播计算所有序列的log_probs
+        关键：记录每个样本的原始input_len，正确提取各自的logits
 
         Args:
             batch_inputs_list: 每个序列对应的输入
@@ -585,13 +586,17 @@ class GRPOTrainerWithNegativePoints:
             pad_token_id = self.tokenizer.pad_token_id
             eos_token_id = self.tokenizer.eos_token_id
 
-        # 1. Pad所有序列到相同长度
-        max_len = max(seq.shape[0] for seq in batch_sequences)
+        # 1. 记录每个样本的原始input_len
+        input_lens = [inp['input_ids'].shape[1] for inp in batch_inputs_list]
+        max_input_len = max(input_lens)
+
+        # 2. Pad所有序列到相同长度
+        max_seq_len = max(seq.shape[0] for seq in batch_sequences)
         padded_sequences = []
-        length_masks = []
+        seq_masks = []
 
         for seq in batch_sequences:
-            pad_len = max_len - seq.shape[0]
+            pad_len = max_seq_len - seq.shape[0]
             if pad_len > 0:
                 padded_seq = torch.cat([
                     seq,
@@ -606,67 +611,96 @@ class GRPOTrainerWithNegativePoints:
                 mask = torch.ones(seq.shape[0], device=seq.device)
 
             padded_sequences.append(padded_seq)
-            length_masks.append(mask)
+            seq_masks.append(mask)
 
-        batch_seq_tensor = torch.stack(padded_sequences)  # [N, max_len]
-        batch_masks = torch.stack(length_masks)  # [N, max_len]
+        batch_seq_tensor = torch.stack(padded_sequences)  # [N, max_seq_len]
+        batch_seq_masks = torch.stack(seq_masks)  # [N, max_seq_len]
 
-        # 2. 合并所有inputs（包括不同的图像）
-        # 需要逐个key合并
-        merged_inputs = {}
+        # 3. Pad input_ids和attention_mask
+        padded_input_ids = []
+        padded_attention_masks = []
 
-        for key in ['input_ids', 'attention_mask', 'pixel_values', 'image_grid_thw']:
+        for inp in batch_inputs_list:
+            input_ids = inp['input_ids']  # [1, len]
+            curr_len = input_ids.shape[1]
+            pad_len = max_input_len - curr_len
+
+            if pad_len > 0:
+                padded_ids = torch.cat([
+                    input_ids,
+                    torch.full((1, pad_len), pad_token_id, dtype=input_ids.dtype, device=input_ids.device)
+                ], dim=1)
+
+                if 'attention_mask' in inp:
+                    attention_mask = inp['attention_mask']
+                    padded_mask = torch.cat([
+                        attention_mask,
+                        torch.zeros((1, pad_len), dtype=attention_mask.dtype, device=attention_mask.device)
+                    ], dim=1)
+                    padded_attention_masks.append(padded_mask)
+            else:
+                padded_ids = input_ids
+                if 'attention_mask' in inp:
+                    padded_attention_masks.append(inp['attention_mask'])
+
+            padded_input_ids.append(padded_ids)
+
+        # 4. 拼接inputs和sequences
+        merged_input_ids = torch.cat(padded_input_ids, dim=0)  # [N, max_input_len]
+        combined_ids = torch.cat([merged_input_ids, batch_seq_tensor], dim=1)  # [N, max_input_len + max_seq_len]
+
+        forward_inputs = {'input_ids': combined_ids}
+
+        # attention_mask
+        if padded_attention_masks:
+            merged_attention = torch.cat(padded_attention_masks, dim=0)
+            combined_attention = torch.cat([merged_attention, batch_seq_masks], dim=1)
+            forward_inputs['attention_mask'] = combined_attention
+
+        # pixel_values和image_grid_thw
+        for key in ['pixel_values', 'image_grid_thw']:
             if key in batch_inputs_list[0]:
-                # 将所有样本的这个key拼接
                 tensors = [inp[key] for inp in batch_inputs_list]
-                # 每个inputs[key]的形状是[1, ...]，拼接后是[N, ...]
-                merged_inputs[key] = torch.cat(tensors, dim=0)
+                forward_inputs[key] = torch.cat(tensors, dim=0)
 
-        # 3. 拼接input_ids和generated sequences
-        input_len = merged_inputs['input_ids'].shape[1]
-        combined_ids = torch.cat([merged_inputs['input_ids'], batch_seq_tensor], dim=1)
-
-        # 更新attention_mask
-        if 'attention_mask' in merged_inputs:
-            combined_attention_mask = torch.cat([
-                merged_inputs['attention_mask'],
-                batch_masks
-            ], dim=1)
-            merged_inputs['attention_mask'] = combined_attention_mask
-
-        merged_inputs['input_ids'] = combined_ids
-
-        # 4. 一次前向传播（关键！）
+        # 5. 一次前向传播（关键！）
         with torch.amp.autocast('cuda'):
-            outputs = self.model(**merged_inputs)
-            logits = outputs.logits  # [N, input_len + max_len, vocab_size]
+            outputs = self.model(**forward_inputs)
+            logits = outputs.logits  # [N, max_input_len + max_seq_len, vocab_size]
 
-        # 5. 取生成部分的logits
-        gen_logits = logits[:, input_len-1:-1, :]  # [N, max_len, vocab_size]
+        # 6. 分别提取每个样本的gen_logits并计算log_prob
+        all_log_probs = []
 
-        # 6. 计算log_probs（应用temperature）
-        log_probs = torch.log_softmax(gen_logits / self.temperature, dim=-1)
+        for i in range(N):
+            # 使用该样本的实际input_len
+            actual_input_len = input_lens[i]
+            # 提取该样本的logits
+            sample_logits = logits[i, actual_input_len-1:actual_input_len+max_seq_len-1, :]  # [max_seq_len, vocab_size]
 
-        # 7. Gather每个token的log_prob
-        token_log_probs = torch.gather(
-            log_probs,
-            dim=2,
-            index=batch_seq_tensor.unsqueeze(-1)
-        ).squeeze(-1)  # [N, max_len]
+            # 计算log_probs（应用temperature）
+            log_probs = torch.log_softmax(sample_logits / self.temperature, dim=-1)
 
-        # 8. 应用EOS mask
-        final_masks = batch_masks.clone()
-        if eos_token_id is not None:
-            for i in range(N):
-                eos_positions = (batch_seq_tensor[i] == eos_token_id).nonzero(as_tuple=True)[0]
+            # Gather token log_probs
+            sequence = batch_seq_tensor[i]  # [max_seq_len]
+            token_log_probs = torch.gather(
+                log_probs,
+                dim=1,
+                index=sequence.unsqueeze(-1)
+            ).squeeze(-1)  # [max_seq_len]
+
+            # 应用mask（EOS和PAD）
+            mask = batch_seq_masks[i].clone()
+            if eos_token_id is not None:
+                eos_positions = (sequence == eos_token_id).nonzero(as_tuple=True)[0]
                 if len(eos_positions) > 0:
                     first_eos = eos_positions[0].item()
-                    final_masks[i, first_eos:] = 0
+                    mask[first_eos:] = 0
 
-        # 9. 计算每个序列的总log_prob
-        sequence_log_probs = (token_log_probs * final_masks).sum(dim=1)  # [N]
+            # 计算总log_prob
+            total_log_prob = (token_log_probs * mask).sum()
+            all_log_probs.append(total_log_prob)
 
-        return sequence_log_probs
+        return torch.stack(all_log_probs)
 
 
 def main():
