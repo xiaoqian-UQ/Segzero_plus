@@ -512,6 +512,9 @@ class GRPOTrainerWithNegativePoints:
         """
         重新计算log_probs（带梯度）并计算GRPO损失
 
+        关键：将所有样本的所有序列合并成一个超大批次，只进行一次前向传播
+        这样才能避免DeepSpeed的"梯度重复计算"错误
+
         Args:
             all_inputs: 每个样本的输入
             all_sequences: 每个样本的K个生成序列
@@ -520,8 +523,8 @@ class GRPOTrainerWithNegativePoints:
         Returns:
             GRPO损失
         """
-        total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
-        count = 0
+        # 1. 准备所有的 (inputs, sequence, advantage) 三元组
+        all_triplets = []
 
         for inputs, sequences, rewards in zip(all_inputs, all_sequences, all_rewards):
             # 计算组内优势
@@ -530,17 +533,140 @@ class GRPOTrainerWithNegativePoints:
 
             advantages = [(r - mean_reward) / std_reward for r in rewards]
             advantages = [np.clip(a, self.clip_lower, self.clip_upper) for a in advantages]
-            advantages_tensor = torch.tensor(advantages, device=self.device, dtype=torch.float32)
 
-            # 批量计算所有序列的log_probs（一次前向传播，避免梯度重复）
-            log_probs = self._compute_sequence_log_probs_batch(inputs, sequences)  # [K]
+            # 为每个序列创建三元组
+            for seq, adv in zip(sequences, advantages):
+                all_triplets.append((inputs, seq, adv))
 
-            # GRPO损失：-log_probs * advantages 的和
-            loss_term = -(log_probs * advantages_tensor).sum()
-            total_loss = total_loss + loss_term
-            count += len(sequences)
+        if len(all_triplets) == 0:
+            return torch.tensor(0.0, device=self.device, requires_grad=True)
 
-        return total_loss / count if count > 0 else total_loss
+        # 2. 将所有inputs、sequences合并成大批次
+        batch_inputs_list = []
+        batch_sequences = []
+        batch_advantages = []
+
+        for inputs, seq, adv in all_triplets:
+            batch_inputs_list.append(inputs)
+            batch_sequences.append(seq)
+            batch_advantages.append(adv)
+
+        # 3. 一次性计算所有log_probs（关键：只有一次前向传播）
+        log_probs = self._compute_all_log_probs(batch_inputs_list, batch_sequences)
+
+        # 4. 计算GRPO损失
+        advantages_tensor = torch.tensor(batch_advantages, device=self.device, dtype=torch.float32)
+        loss = -(log_probs * advantages_tensor).mean()
+
+        return loss
+
+    def _compute_all_log_probs(
+        self,
+        batch_inputs_list: List[Dict],
+        batch_sequences: List[torch.Tensor]
+    ) -> torch.Tensor:
+        """
+        一次前向传播计算所有序列的log_probs
+
+        Args:
+            batch_inputs_list: 每个序列对应的输入
+            batch_sequences: 所有序列 [N个]，每个是 [seq_len]
+
+        Returns:
+            log_probs: [N] tensor
+        """
+        N = len(batch_sequences)
+
+        # 获取token IDs
+        if self.is_vl_model and hasattr(self.tokenizer, 'tokenizer'):
+            pad_token_id = self.tokenizer.tokenizer.pad_token_id
+            eos_token_id = self.tokenizer.tokenizer.eos_token_id
+        else:
+            pad_token_id = self.tokenizer.pad_token_id
+            eos_token_id = self.tokenizer.eos_token_id
+
+        # 1. Pad所有序列到相同长度
+        max_len = max(seq.shape[0] for seq in batch_sequences)
+        padded_sequences = []
+        length_masks = []
+
+        for seq in batch_sequences:
+            pad_len = max_len - seq.shape[0]
+            if pad_len > 0:
+                padded_seq = torch.cat([
+                    seq,
+                    torch.full((pad_len,), pad_token_id, dtype=seq.dtype, device=seq.device)
+                ])
+                mask = torch.cat([
+                    torch.ones(seq.shape[0], device=seq.device),
+                    torch.zeros(pad_len, device=seq.device)
+                ])
+            else:
+                padded_seq = seq
+                mask = torch.ones(seq.shape[0], device=seq.device)
+
+            padded_sequences.append(padded_seq)
+            length_masks.append(mask)
+
+        batch_seq_tensor = torch.stack(padded_sequences)  # [N, max_len]
+        batch_masks = torch.stack(length_masks)  # [N, max_len]
+
+        # 2. 合并所有inputs（包括不同的图像）
+        # 需要逐个key合并
+        merged_inputs = {}
+
+        for key in ['input_ids', 'attention_mask', 'pixel_values', 'image_grid_thw']:
+            if key in batch_inputs_list[0]:
+                # 将所有样本的这个key拼接
+                tensors = [inp[key] for inp in batch_inputs_list]
+                # 每个inputs[key]的形状是[1, ...]，拼接后是[N, ...]
+                merged_inputs[key] = torch.cat(tensors, dim=0)
+
+        # 3. 拼接input_ids和generated sequences
+        input_len = merged_inputs['input_ids'].shape[1]
+        combined_ids = torch.cat([merged_inputs['input_ids'], batch_seq_tensor], dim=1)
+
+        # 更新attention_mask
+        if 'attention_mask' in merged_inputs:
+            combined_attention_mask = torch.cat([
+                merged_inputs['attention_mask'],
+                batch_masks
+            ], dim=1)
+            merged_inputs['attention_mask'] = combined_attention_mask
+
+        merged_inputs['input_ids'] = combined_ids
+
+        # 4. 一次前向传播（关键！）
+        with torch.amp.autocast('cuda'):
+            outputs = self.model(**merged_inputs)
+            logits = outputs.logits  # [N, input_len + max_len, vocab_size]
+
+        # 5. 取生成部分的logits
+        gen_logits = logits[:, input_len-1:-1, :]  # [N, max_len, vocab_size]
+
+        # 6. 计算log_probs（应用temperature）
+        log_probs = torch.log_softmax(gen_logits / self.temperature, dim=-1)
+
+        # 7. Gather每个token的log_prob
+        token_log_probs = torch.gather(
+            log_probs,
+            dim=2,
+            index=batch_seq_tensor.unsqueeze(-1)
+        ).squeeze(-1)  # [N, max_len]
+
+        # 8. 应用EOS mask
+        final_masks = batch_masks.clone()
+        if eos_token_id is not None:
+            for i in range(N):
+                eos_positions = (batch_seq_tensor[i] == eos_token_id).nonzero(as_tuple=True)[0]
+                if len(eos_positions) > 0:
+                    first_eos = eos_positions[0].item()
+                    final_masks[i, first_eos:] = 0
+
+        # 9. 计算每个序列的总log_prob
+        sequence_log_probs = (token_log_probs * final_masks).sum(dim=1)  # [N]
+
+        return sequence_log_probs
 
 
 def main():
