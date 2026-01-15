@@ -397,6 +397,111 @@ class GRPOTrainerWithNegativePoints:
 
         return total_log_prob
 
+    def _compute_sequence_log_probs_batch(
+        self,
+        inputs: Dict,
+        sequences: List[torch.Tensor]
+    ) -> torch.Tensor:
+        """
+        批量计算多个序列的log_probs（一次前向传播）
+
+        Args:
+            inputs: 模型输入 (batch_size=1)
+            sequences: K个生成的序列
+
+        Returns:
+            log_probs: [K] 的tensor，每个序列的总log_prob
+        """
+        # 获取pad_token_id和eos_token_id
+        if self.is_vl_model and hasattr(self.tokenizer, 'tokenizer'):
+            pad_token_id = self.tokenizer.tokenizer.pad_token_id
+            eos_token_id = self.tokenizer.tokenizer.eos_token_id
+        else:
+            pad_token_id = self.tokenizer.pad_token_id
+            eos_token_id = self.tokenizer.eos_token_id
+
+        # 1. Pad所有序列到相同长度
+        max_len = max(seq.shape[0] for seq in sequences)
+        padded_sequences = []
+        length_masks = []
+
+        for seq in sequences:
+            pad_len = max_len - seq.shape[0]
+            if pad_len > 0:
+                padded_seq = torch.cat([
+                    seq,
+                    torch.full((pad_len,), pad_token_id, dtype=seq.dtype, device=seq.device)
+                ])
+                mask = torch.cat([
+                    torch.ones(seq.shape[0], device=seq.device),
+                    torch.zeros(pad_len, device=seq.device)
+                ])
+            else:
+                padded_seq = seq
+                mask = torch.ones(seq.shape[0], device=seq.device)
+
+            padded_sequences.append(padded_seq)
+            length_masks.append(mask)
+
+        # Stack成批次: [K, max_len]
+        batch_sequences = torch.stack(padded_sequences)
+        batch_masks = torch.stack(length_masks)
+
+        # 2. 扩展inputs到批次大小K
+        K = len(sequences)
+        batch_inputs = {}
+
+        for key in ['input_ids', 'attention_mask', 'pixel_values', 'image_grid_thw']:
+            if key in inputs:
+                # 从 [1, ...] 扩展到 [K, ...]
+                batch_inputs[key] = inputs[key].repeat(K, *([1] * (len(inputs[key].shape) - 1)))
+
+        # 3. 拼接input_ids和generated sequences
+        input_len = batch_inputs['input_ids'].shape[1]
+        combined_ids = torch.cat([batch_inputs['input_ids'], batch_sequences], dim=1)
+
+        # 更新attention_mask
+        if 'attention_mask' in batch_inputs:
+            combined_attention_mask = torch.cat([
+                batch_inputs['attention_mask'],
+                batch_masks
+            ], dim=1)
+            batch_inputs['attention_mask'] = combined_attention_mask
+
+        batch_inputs['input_ids'] = combined_ids
+
+        # 4. 前向传播（一次计算所有序列）
+        with torch.amp.autocast('cuda'):
+            outputs = self.model(**batch_inputs)
+            logits = outputs.logits  # [K, input_len + max_len, vocab_size]
+
+        # 5. 取生成部分的logits
+        gen_logits = logits[:, input_len-1:-1, :]  # [K, max_len, vocab_size]
+
+        # 6. 计算log_probs（应用temperature）
+        log_probs = torch.log_softmax(gen_logits / self.temperature, dim=-1)
+
+        # 7. Gather每个token的log_prob
+        token_log_probs = torch.gather(
+            log_probs,
+            dim=2,
+            index=batch_sequences.unsqueeze(-1)
+        ).squeeze(-1)  # [K, max_len]
+
+        # 8. 应用EOS mask
+        final_masks = batch_masks.clone()
+        if eos_token_id is not None:
+            for k in range(K):
+                eos_positions = (batch_sequences[k] == eos_token_id).nonzero(as_tuple=True)[0]
+                if len(eos_positions) > 0:
+                    first_eos = eos_positions[0].item()
+                    final_masks[k, first_eos:] = 0
+
+        # 9. 计算每个序列的总log_prob
+        sequence_log_probs = (token_log_probs * final_masks).sum(dim=1)  # [K]
+
+        return sequence_log_probs
+
     def _compute_grpo_loss_with_recompute(
         self,
         all_inputs: List[Dict],
@@ -424,15 +529,15 @@ class GRPOTrainerWithNegativePoints:
 
             advantages = [(r - mean_reward) / std_reward for r in rewards]
             advantages = [np.clip(a, self.clip_lower, self.clip_upper) for a in advantages]
+            advantages_tensor = torch.tensor(advantages, device=self.device, dtype=torch.float32)
 
-            # 重新计算每个序列的log_prob（带梯度）
-            for sequence, advantage in zip(sequences, advantages):
-                log_prob = self._compute_sequence_log_probs(inputs, sequence)
+            # 批量计算所有序列的log_probs（一次前向传播，避免梯度重复）
+            log_probs = self._compute_sequence_log_probs_batch(inputs, sequences)  # [K]
 
-                # GRPO损失：-log_prob * advantage
-                loss_term = -log_prob * advantage
-                total_loss = total_loss + loss_term
-                count += 1
+            # GRPO损失：-log_probs * advantages 的和
+            loss_term = -(log_probs * advantages_tensor).sum()
+            total_loss = total_loss + loss_term
+            count += len(sequences)
 
         return total_loss / count if count > 0 else total_loss
 
