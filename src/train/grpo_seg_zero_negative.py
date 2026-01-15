@@ -93,6 +93,12 @@ class GRPOTrainerWithNegativePoints:
                 trust_remote_code=True
             )
         
+        # 启用gradient checkpointing节省内存
+        if hasattr(model, "enable_input_require_grads"):
+            model.enable_input_require_grads()
+        if hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable()
+
         # LoRA配置
         lora_config = LoraConfig(
             r=self.config.get("lora_r", 64),
@@ -102,10 +108,10 @@ class GRPOTrainerWithNegativePoints:
             bias="none",
             task_type="CAUSAL_LM"
         )
-        
+
         model = get_peft_model(model, lora_config)
         model.print_trainable_parameters()
-        
+
         return model
     
     def _init_tokenizer(self):
