@@ -122,37 +122,39 @@ class GRPOTrainerWithNegativePoints:
     
     def train_step(self, batch: Dict[str, Any]) -> Dict[str, float]:
         """
-        单步训练
-        
+        单步训练（GRPO算法）
+
         Args:
             batch: 包含image, query, gt_mask的批次数据
-            
+
         Returns:
             训练指标字典
         """
         images = batch["image"]
         queries = batch["query"]
         gt_masks = batch["gt_mask"]
-        
+
         batch_size = len(images)
         all_rewards = []
-        all_log_probs = []
-        
+        all_sequences = []  # 保存生成的token序列
+        all_inputs = []     # 保存输入（用于重新计算log_probs）
+
         for i in range(batch_size):
             image = images[i]
             query = queries[i]
             gt_mask = gt_masks[i]
-            
-            # 构建prompt
+
+            # 构建prompt并准备输入
             prompt = self._build_prompt(query)
-            
-            # 采样K个输出
-            outputs, log_probs = self._sample_outputs(prompt, self.group_size)
-            
-            # 计算每个输出的奖励
+            inputs = self._prepare_inputs(image, prompt)
+
+            # 阶段1：采样K个输出（no_grad）
+            outputs_text, sequences = self._sample_outputs(inputs, self.group_size)
+
+            # 阶段2：计算每个输出的奖励
             rewards = []
-            for output in outputs:
-                parsed = self.parser.parse(output)
+            for output_text in outputs_text:
+                parsed = self.parser.parse(output_text)
                 reward_output = self.reward_calculator.compute_reward(
                     image=image,
                     positive_points=parsed.positive_points,
@@ -162,14 +164,15 @@ class GRPOTrainerWithNegativePoints:
                     format_valid=parsed.is_valid
                 )
                 rewards.append(reward_output.total_reward)
-            
+
             all_rewards.append(rewards)
-            all_log_probs.append(log_probs)
-        
-        # GRPO更新
-        loss = self._compute_grpo_loss(all_rewards, all_log_probs)
-        
-        # 反向传播
+            all_sequences.append(sequences)
+            all_inputs.append(inputs)
+
+        # 阶段3：重新计算log_probs（带梯度）并计算GRPO loss
+        loss = self._compute_grpo_loss_with_recompute(all_inputs, all_sequences, all_rewards)
+
+        # 阶段4：反向传播和参数更新
         if self.engine is not None:
             self.engine.backward(loss)
             self.engine.step()
@@ -179,7 +182,7 @@ class GRPOTrainerWithNegativePoints:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-        
+
         return {
             "loss": loss.item(),
             "mean_reward": np.mean([r for rewards in all_rewards for r in rewards]),
@@ -203,18 +206,71 @@ class GRPOTrainerWithNegativePoints:
             "i.e., <think> thinking process here </think>"
             '<answer>{"bbox": [x1, y1, x2, y2], "points": [[x1, y1], [x2, y2]], "negative_points": [[x1, y1]]}</answer>'
         )
-    
-    def _sample_outputs(self, prompt: str, k: int) -> tuple:
-        """采样K个输出及其log概率"""
+
+    def _prepare_inputs(self, image: np.ndarray, prompt: str) -> Dict:
+        """
+        准备模型输入（支持VL模型）
+
+        Args:
+            image: numpy array (H, W, 3)
+            prompt: 文本提示
+
+        Returns:
+            模型输入字典
+        """
+        from PIL import Image as PILImage
+
         if self.is_vl_model:
-            inputs = self.tokenizer(text=prompt, return_tensors="pt").to(self.device)
+            # Qwen2.5-VL: 需要图像+文本
+            pil_image = PILImage.fromarray(image.astype(np.uint8))
+
+            # 构建VL消息格式
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "image": pil_image},
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ]
+
+            # 使用processor处理
+            text = self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            inputs = self.tokenizer(
+                text=[text],
+                images=[pil_image],
+                return_tensors="pt",
+                padding=True
+            )
         else:
-            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-        
-        outputs = []
-        log_probs = []
-        
+            # 纯文本模型
+            inputs = self.tokenizer(prompt, return_tensors="pt")
+
+        # 移到设备
+        inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                  for k, v in inputs.items()}
+
+        return inputs
+
+    def _sample_outputs(self, inputs: Dict, k: int) -> tuple:
+        """
+        采样K个输出（no_grad，只用于生成文本）
+
+        Args:
+            inputs: 模型输入（包含图像和文本）
+            k: 采样数量
+
+        Returns:
+            (outputs_text, sequences): 生成的文本和token序列
+        """
+        outputs_text = []
+        sequences = []
+
         model = self.engine.module if self.engine is not None else self.model
+
         for _ in range(k):
             with torch.no_grad():
                 generated = model.generate(
@@ -222,11 +278,14 @@ class GRPOTrainerWithNegativePoints:
                     max_new_tokens=128,
                     temperature=self.temperature,
                     do_sample=True,
-                    output_scores=True,
                     return_dict_in_generate=True
                 )
-            
-            seq = generated.sequences[:, inputs.input_ids.shape[1]:]
+
+            # 提取生成的token序列（去除输入部分）
+            seq = generated.sequences[:, inputs["input_ids"].shape[1]:]
+            sequences.append(seq)
+
+            # 解码为文本
             if hasattr(self.tokenizer, "batch_decode"):
                 output_text = self.tokenizer.batch_decode(
                     seq, skip_special_tokens=True, clean_up_tokenization_spaces=False
@@ -235,59 +294,135 @@ class GRPOTrainerWithNegativePoints:
                 output_text = self.tokenizer.decode(
                     seq[0], skip_special_tokens=True
                 )
-            outputs.append(output_text)
-            
-            # 计算log概率
-            log_prob = self._compute_log_prob(generated)
-            log_probs.append(log_prob)
-        
-        return outputs, log_probs
-    
-    def _compute_log_prob(self, generated) -> torch.Tensor:
-        """计算生成序列的log概率"""
-        scores = generated.scores
-        sequences = generated.sequences
-        
-        log_prob = 0
-        for i, score in enumerate(scores):
-            token_id = sequences[0, i + 1]
-            log_prob += torch.log_softmax(score, dim=-1)[0, token_id]
-        
-        return log_prob
-    
-    def _compute_grpo_loss(
+            outputs_text.append(output_text)
+
+        return outputs_text, sequences
+
+    def _compute_sequence_log_probs(
         self,
-        all_rewards: List[List[float]],
-        all_log_probs: List[List[torch.Tensor]]
+        inputs: Dict,
+        sequence: torch.Tensor
     ) -> torch.Tensor:
         """
-        计算GRPO损失
-        
-        使用组内相对奖励进行优势估计
+        重新计算序列的log概率（带梯度）
+
+        Args:
+            inputs: 模型输入（包含图像和文本）
+            sequence: 生成的token序列 (1, seq_len)
+
+        Returns:
+            log_prob: 序列的总log概率（标量tensor，带梯度）
         """
-        total_loss = 0
+        model = self.engine.module if self.engine is not None else self.model
+
+        # 构建完整的输入序列（输入 + 生成的序列）
+        full_input_ids = torch.cat([inputs["input_ids"], sequence], dim=1)
+
+        # 准备其他输入（如果有）
+        forward_inputs = {"input_ids": full_input_ids}
+        if "attention_mask" in inputs:
+            # 扩展attention_mask
+            seq_len = sequence.shape[1]
+            extended_mask = torch.ones(
+                (inputs["attention_mask"].shape[0], seq_len),
+                dtype=inputs["attention_mask"].dtype,
+                device=inputs["attention_mask"].device
+            )
+            forward_inputs["attention_mask"] = torch.cat(
+                [inputs["attention_mask"], extended_mask], dim=1
+            )
+
+        # 如果是VL模型，传入图像特征
+        if self.is_vl_model and "pixel_values" in inputs:
+            forward_inputs["pixel_values"] = inputs["pixel_values"]
+        if self.is_vl_model and "image_grid_thw" in inputs:
+            forward_inputs["image_grid_thw"] = inputs["image_grid_thw"]
+
+        # 前向传播
+        outputs = model(**forward_inputs)
+        logits = outputs.logits  # (batch_size, seq_len, vocab_size)
+
+        # 计算log_probs（只计算生成部分）
+        # logits的最后seq_len个位置对应sequence的预测
+        input_len = inputs["input_ids"].shape[1]
+        gen_logits = logits[:, input_len-1:-1, :]  # 对应sequence的每个token
+
+        # 修复1: 应用temperature，与采样时保持一致
+        log_probs = torch.log_softmax(gen_logits / self.temperature, dim=-1)  # (1, seq_len, vocab_size)
+
+        # 提取对应token的log_prob
+        token_log_probs = torch.gather(
+            log_probs,
+            dim=2,
+            index=sequence.unsqueeze(-1)
+        ).squeeze(-1)  # (1, seq_len)
+
+        # 修复2: Mask掉EOS后的PAD token
+        # 获取tokenizer的特殊token ID
+        pad_token_id = self.tokenizer.pad_token_id
+        eos_token_id = self.tokenizer.eos_token_id
+
+        # 创建mask：在EOS之前的token为1，EOS及之后为0
+        mask = torch.ones_like(sequence, dtype=torch.float)
+        if eos_token_id is not None:
+            # 找到第一个EOS的位置
+            eos_positions = (sequence == eos_token_id).nonzero(as_tuple=True)
+            if len(eos_positions[0]) > 0:
+                # 有EOS token
+                for batch_idx in range(sequence.shape[0]):
+                    batch_eos = eos_positions[1][eos_positions[0] == batch_idx]
+                    if len(batch_eos) > 0:
+                        first_eos = batch_eos[0].item()
+                        # 将EOS及之后的位置mask掉（包括EOS本身）
+                        mask[batch_idx, first_eos:] = 0
+
+        # 如果没有EOS但有PAD，也mask掉PAD
+        if pad_token_id is not None:
+            mask = mask * (sequence != pad_token_id).float()
+
+        # 应用mask后求和
+        total_log_prob = (token_log_probs * mask).sum()
+
+        return total_log_prob
+
+    def _compute_grpo_loss_with_recompute(
+        self,
+        all_inputs: List[Dict],
+        all_sequences: List[List[torch.Tensor]],
+        all_rewards: List[List[float]]
+    ) -> torch.Tensor:
+        """
+        重新计算log_probs（带梯度）并计算GRPO损失
+
+        Args:
+            all_inputs: 每个样本的输入
+            all_sequences: 每个样本的K个生成序列
+            all_rewards: 每个样本的K个奖励
+
+        Returns:
+            GRPO损失
+        """
+        total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
         count = 0
-        
-        for rewards, log_probs in zip(all_rewards, all_log_probs):
-            # 计算组内平均奖励
+
+        for inputs, sequences, rewards in zip(all_inputs, all_sequences, all_rewards):
+            # 计算组内优势
             mean_reward = np.mean(rewards)
             std_reward = np.std(rewards) + 1e-8
-            
-            # 计算优势（相对于组内平均）
+
             advantages = [(r - mean_reward) / std_reward for r in rewards]
-            
-            # 裁剪优势
-            advantages = [
-                np.clip(a, self.clip_lower, self.clip_upper)
-                for a in advantages
-            ]
-            
-            # 计算损失
-            for log_prob, advantage in zip(log_probs, advantages):
-                total_loss -= log_prob * advantage
+            advantages = [np.clip(a, self.clip_lower, self.clip_upper) for a in advantages]
+
+            # 重新计算每个序列的log_prob（带梯度）
+            for sequence, advantage in zip(sequences, advantages):
+                log_prob = self._compute_sequence_log_probs(inputs, sequence)
+
+                # GRPO损失：-log_prob * advantage
+                loss_term = -log_prob * advantage
+                total_loss = total_loss + loss_term
                 count += 1
-        
-        return total_loss / count
+
+        return total_loss / count if count > 0 else total_loss
 
 
 def main():
